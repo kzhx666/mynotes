@@ -8,8 +8,8 @@ services:
       - "3000:3000"
     environment:
       - ADMIN_PASSWORD=123456
-      - DAV_USER=965680859@qq.com
-      - DAV_PASSWORD=atmpiabi3mus9yuf
+      - DAV_USER=坚果云邮箱
+      - DAV_PASSWORD=坚果云密码
     volumes:
       - ./data:/app/data
       - ./public/uploads:/app/public/uploads
