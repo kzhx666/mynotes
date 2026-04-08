@@ -98,7 +98,8 @@ export default function EditorContainer() {
     .tree-item-active { background-color: #2563eb !important; color: white !important; }
     .ctx-menu-item:hover { background-color: #f1f5f9; color: #2563eb; }
     .no-scrollbar::-webkit-scrollbar { display: none; }
-    .vditor { border: none !important; display: flex !important; flex-direction: column !important; height: 100% !important; }
+    /* 取消了导致布局崩溃的 override，把控制权还给 Vditor */
+    .vditor { border: none !important; }
     .vditor-toolbar { border-bottom: 1px solid #e2e8f0 !important; background: #f8fafc !important; }
     .preview-content table { width: 100%; border-collapse: collapse; margin: 16px 0; font-size: 14px; }
     .preview-content th, .preview-content td { border: 1px solid #cbd5e1; padding: 10px 14px; text-align: left; }
@@ -112,18 +113,26 @@ export default function EditorContainer() {
     .preview-content h2 { font-size: 20px; font-weight: 700; margin-top: 32px; margin-bottom: 16px; color: #1e293b; border-left: 4px solid #2563eb; padding-left: 12px; }
   `;
 
-  // 【核心修复 1】：将编辑器改为“单例模式”，一生只初始化一次！
+  // 精准计算是否应该渲染编辑器 DOM
+  const showEditor = (viewMode === 'editor' || viewMode === 'both') && activeNote && !activeNote.is_folder;
+  // 生成独一无二的生命周期 Key，确保切换笔记或改变视图模式时，编辑器能在真实尺寸下重建
+  const editorKey = activeNote ? `${activeNote.id}-${viewMode}` : 'none';
+
+  // 【核心修复】：带安全拦截机制的防闪烁初始化
   useEffect(() => {
-    let isMounted = true;
+    if (!showEditor) return;
+    
+    let isCanceled = false; // 竞态拦截器
     let vditorInstance: any = null;
+    const vditorId = `vditor-${activeNote.id}`; // 动态 DOM ID，防止实例打架
 
     const initVditor = async () => {
       const VditorModule = await import('vditor');
-      if (!isMounted) return;
-      const Vditor = VditorModule.default;
+      if (isCanceled) return; // 如果此时用户已经切走了，直接拦截并抛弃！
       
-      vditorInstance = new Vditor('vditor-element', {
-        height: '100%', mode: 'ir', lang: 'zh_CN', value: '',
+      const Vditor = VditorModule.default;
+      vditorInstance = new Vditor(vditorId, {
+        height: '100%', mode: 'ir', lang: 'zh_CN', value: activeNote.content || '',
         preview: { markdown: { mark: true } },
         upload: { 
           url: '/api/upload', fieldName: 'file[]', max: 10 * 1024 * 1024,
@@ -154,17 +163,11 @@ export default function EditorContainer() {
         ],
         input: (val) => { if(activeNoteRef.current) activeNoteRef.current.content = val; },
         after: () => { 
-          if (!isMounted) {
-            vditorInstance?.destroy?.();
-            return;
+          if (isCanceled) { 
+            vditorInstance.destroy(); // 最后的安全网
+            return; 
           }
           vditorRef.current = vditorInstance; 
-          
-          // 初始化成功后，立刻填入当前的笔记内容
-          if (activeNoteRef.current && !activeNoteRef.current.is_folder) {
-              vditorInstance.setValue(activeNoteRef.current.content || '');
-          }
-          
           let count = 0;
           const timer = setInterval(() => {
             document.querySelectorAll('.vditor-toolbar__item button').forEach(btn => {
@@ -176,26 +179,20 @@ export default function EditorContainer() {
         }
       });
     };
-    
-    initVditor();
-    
-    return () => { 
-      isMounted = false;
-      if(vditorInstance) { vditorInstance.destroy?.(); }
-      vditorRef.current = null;
-    };
-  }, []); // <--- 重点：空依赖数组，这辈子只初始化一次！
 
-  // 【核心修复 2】：监听点击切换事件，仅动态替换内容而不销毁编辑器
-  useEffect(() => {
-    if (vditorRef.current) {
-        if (activeNote && !activeNote.is_folder) {
-            vditorRef.current.setValue(activeNote.content || '');
-        } else {
-            vditorRef.current.setValue('');
-        }
-    }
-  }, [activeNote?.id]);
+    // 延迟 20 毫秒，确保 DOM 节点不仅挂载了，而且浏览器已经计算出了真实的宽度
+    setTimeout(initVditor, 20);
+
+    return () => { 
+      isCanceled = true; // 用户切换了，立刻激活拦截器
+      if (vditorRef.current) {
+        try { vditorRef.current.destroy(); } catch(e) {}
+        vditorRef.current = null;
+      } else if (vditorInstance) {
+        try { vditorInstance.destroy(); } catch(e) {}
+      }
+    };
+  }, [editorKey]); 
 
   useEffect(() => {
     if (showMindmap && svgRef.current && activeNote && !activeNote.is_folder) {
@@ -268,7 +265,7 @@ export default function EditorContainer() {
       <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/vditor/dist/index.css" />
       <style>{globalCSS}</style>
 
-      <aside style={{ width: '280px', backgroundColor: '#0f172a', display: 'flex', flexDirection: 'column' }}>
+      <aside style={{ width: '280px', backgroundColor: '#0f172a', display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
         <div style={{ padding: '20px', borderBottom: '1px solid #1e293b', display: 'flex', justifyContent: 'space-between', color: '#fff' }}>
           <span style={{ fontWeight: 'bold' }}>MyNotes</span>
           <div style={{display:'flex', gap:'8px'}}>
@@ -288,7 +285,7 @@ export default function EditorContainer() {
       </aside>
 
       <main style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-        <header style={{ height: '64px', borderBottom: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 24px' }}>
+        <header style={{ height: '64px', borderBottom: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 24px', flexShrink: 0 }}>
           <div style={{display:'flex', alignItems:'center', gap:'15px'}}>
             <span style={{ fontWeight:'bold', color:'#1e293b' }}>{activeNote?.title || '未选择'}</span>
             <span style={{ fontSize: '12px', color: '#10b981', marginLeft: '10px' }}>{saveStatus}</span>
@@ -313,22 +310,30 @@ export default function EditorContainer() {
         </header>
 
         <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
-          {/* 【核心修复 3】：移除 key 属性，让编辑器 DOM 永驻，依靠 setValue() 更新，防止组件闪烁和崩溃 */}
-          <div style={{ flex: (viewMode==='editor'||viewMode==='both') ? 1 : 0, display: (viewMode==='editor'||viewMode==='both') && !activeNote?.is_folder ? 'block' : 'none', height: '100%', position: 'relative', borderRight: viewMode==='both' ? '1px solid #e2e8f0' : 'none' }}>
-            <div id="vditor-element"></div>
-          </div>
+          {/* 【修复】：放弃 display:none 这种危险做法。使用动态渲染控制，只要它存在，就必定占据 1 的比例 */}
+          {showEditor && (
+            <div style={{ flex: 1, position: 'relative', borderRight: viewMode==='both' ? '1px solid #e2e8f0' : 'none', minWidth: 0 }}>
+              <div key={editorKey} id={`vditor-${activeNote.id}`} style={{ width: '100%', height: '100%' }}></div>
+            </div>
+          )}
           
-          <div style={{ flex: (viewMode==='preview'||viewMode==='both') ? 1 : 0, display: (viewMode==='preview'||viewMode==='both') ? 'block' : 'none', backgroundColor: '#f8fafc', overflowY: 'auto', height: '100%' }}>
-            {showMindmap ? <svg ref={svgRef} style={{ width: '100%', height: '100%', minHeight: '500px' }}></svg> : (
-              <div style={{ padding: '40px' }}>
-                {activeNote ? (
+          {((viewMode === 'preview' || viewMode === 'both') && activeNote) && (
+            <div style={{ flex: 1, backgroundColor: '#f8fafc', overflowY: 'auto', minWidth: 0 }}>
+              {showMindmap ? <svg ref={svgRef} style={{ width: '100%', height: '100%', minHeight: '500px' }}></svg> : (
+                <div style={{ padding: '40px' }}>
                   <div className="preview-content" style={{ maxWidth: '800px', margin: '0 auto', background: '#fff', padding: '50px', borderRadius: '12px', boxShadow: '0 4px 20px rgba(0,0,0,0.05)', minHeight: '80vh' }}>
                     <div dangerouslySetInnerHTML={{ __html: renderHTML(activeNote.content || '') }} />
                   </div>
-                ) : <div style={{ textAlign:'center', color:'#94a3b8', marginTop:'100px' }}>请选择课件</div>}
-              </div>
-            )}
-          </div>
+                </div>
+              )}
+            </div>
+          )}
+          
+          {!activeNote && (
+            <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#94a3b8', fontSize: '16px' }}>
+              请在左侧选择或新建一个课件
+            </div>
+          )}
         </div>
       </main>
 
