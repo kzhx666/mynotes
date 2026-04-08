@@ -1,0 +1,15 @@
+version: '3.8'
+services:
+  mynotes:
+    build: .
+    container_name: mynotes-prod
+    restart: always
+    ports:
+      - "3000:3000"
+    environment:
+      - ADMIN_PASSWORD=123456
+      - DAV_USER=965680859@qq.com
+      - DAV_PASSWORD=atmpiabi3mus9yuf
+    volumes:
+      - ./data:/app/data
+      - ./public/uploads:/app/public/uploads
