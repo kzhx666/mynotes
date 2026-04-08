@@ -112,12 +112,18 @@ export default function EditorContainer() {
     .preview-content h2 { font-size: 20px; font-weight: 700; margin-top: 32px; margin-bottom: 16px; color: #1e293b; border-left: 4px solid #2563eb; padding-left: 12px; }
   `;
 
+  // 【核心修复 1】：将编辑器改为“单例模式”，一生只初始化一次！
   useEffect(() => {
-    if (!activeNote || activeNote.is_folder) return;
+    let isMounted = true;
+    let vditorInstance: any = null;
+
     const initVditor = async () => {
-      const Vditor = (await import('vditor')).default;
-      const vditor = new Vditor('vditor-element', {
-        height: '100%', mode: 'ir', lang: 'zh_CN', value: activeNote.content || '',
+      const VditorModule = await import('vditor');
+      if (!isMounted) return;
+      const Vditor = VditorModule.default;
+      
+      vditorInstance = new Vditor('vditor-element', {
+        height: '100%', mode: 'ir', lang: 'zh_CN', value: '',
         preview: { markdown: { mark: true } },
         upload: { 
           url: '/api/upload', fieldName: 'file[]', max: 10 * 1024 * 1024,
@@ -132,7 +138,7 @@ export default function EditorContainer() {
             name: 'add_mark', tip: '标注重点',
             icon: '<svg viewBox="0 0 1024 1024" width="16" height="16"><path d="M128 768h768v128H128zM318.4 640l-88-251.2 59.2-20.8 77.6 220.8L534.4 128l58.4 20.8L376 720z"/></svg>',
             click() { 
-              const text = vditor.getSelection();
+              const text = vditorInstance.getSelection();
               document.execCommand('insertText', false, `==${text.replace(/=/g, '') || '重点'}==`);
             }
           },
@@ -140,15 +146,25 @@ export default function EditorContainer() {
             name: 'remove_mark', tip: '取消标注',
             icon: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 20H7L3 16C2.5 15.5 2.5 14.5 3 14L13 4C13.5 3.5 14.5 3.5 15 4L20 9C20.5 9.5 20.5 10.5 20 11L11 20"/><path d="M6 11l7 7"/></svg>',
             click() { 
-              const text = vditor.getSelection();
+              const text = vditorInstance.getSelection();
               if (text) document.execCommand('insertText', false, text.replace(/=/g, ''));
             }
           },
           'table', 'undo', 'redo'
         ],
-        input: (val) => { if(activeNote) activeNote.content = val; },
+        input: (val) => { if(activeNoteRef.current) activeNoteRef.current.content = val; },
         after: () => { 
-          vditorRef.current = vditor; 
+          if (!isMounted) {
+            vditorInstance?.destroy?.();
+            return;
+          }
+          vditorRef.current = vditorInstance; 
+          
+          // 初始化成功后，立刻填入当前的笔记内容
+          if (activeNoteRef.current && !activeNoteRef.current.is_folder) {
+              vditorInstance.setValue(activeNoteRef.current.content || '');
+          }
+          
           let count = 0;
           const timer = setInterval(() => {
             document.querySelectorAll('.vditor-toolbar__item button').forEach(btn => {
@@ -160,8 +176,25 @@ export default function EditorContainer() {
         }
       });
     };
+    
     initVditor();
-    return () => { if(vditorRef.current) vditorRef.current.destroy?.(); };
+    
+    return () => { 
+      isMounted = false;
+      if(vditorInstance) { vditorInstance.destroy?.(); }
+      vditorRef.current = null;
+    };
+  }, []); // <--- 重点：空依赖数组，这辈子只初始化一次！
+
+  // 【核心修复 2】：监听点击切换事件，仅动态替换内容而不销毁编辑器
+  useEffect(() => {
+    if (vditorRef.current) {
+        if (activeNote && !activeNote.is_folder) {
+            vditorRef.current.setValue(activeNote.content || '');
+        } else {
+            vditorRef.current.setValue('');
+        }
+    }
   }, [activeNote?.id]);
 
   useEffect(() => {
@@ -268,7 +301,6 @@ export default function EditorContainer() {
             )}
           </div>
           
-          {/* 【修复点】：在这里把所有丢失的按钮原封不动地补齐了！ */}
           <div style={{ display: 'flex', gap: '12px' }}>
             {showMindmap && <button onClick={downloadMindmap} style={{ padding: '8px 20px', borderRadius: '30px', border: '1px solid #10b981', cursor: 'pointer', background: '#fff', color: '#10b981', fontWeight:'bold' }}>⬇ 下载导图</button>}
             
@@ -281,8 +313,9 @@ export default function EditorContainer() {
         </header>
 
         <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
+          {/* 【核心修复 3】：移除 key 属性，让编辑器 DOM 永驻，依靠 setValue() 更新，防止组件闪烁和崩溃 */}
           <div style={{ flex: (viewMode==='editor'||viewMode==='both') ? 1 : 0, display: (viewMode==='editor'||viewMode==='both') && !activeNote?.is_folder ? 'block' : 'none', height: '100%', position: 'relative', borderRight: viewMode==='both' ? '1px solid #e2e8f0' : 'none' }}>
-            <div key={activeNote?.id} id="vditor-element"></div>
+            <div id="vditor-element"></div>
           </div>
           
           <div style={{ flex: (viewMode==='preview'||viewMode==='both') ? 1 : 0, display: (viewMode==='preview'||viewMode==='both') ? 'block' : 'none', backgroundColor: '#f8fafc', overflowY: 'auto', height: '100%' }}>
