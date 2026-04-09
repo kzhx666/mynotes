@@ -10,15 +10,23 @@ const transformer = new Transformer();
 export default function StudentPage() {
   const params = useParams();
   const [note, setNote] = useState<any>(null);
+  const [error, setError] = useState('');
   const [tab, setTab] = useState<'doc' | 'map'>('doc');
   const svgRef = useRef<SVGSVGElement>(null);
   const mmRef = useRef<any>(null);
 
+  // 【核心修改】：调用专属公开 API，且只获取这一篇的数据
   useEffect(() => {
-    fetch(`/api/notes`).then(res => res.json()).then(data => {
-      const found = data.find((n: any) => n.id === params.id);
-      setNote(found);
-    });
+    fetch(`/api/share/${params.id}`)
+      .then(res => {
+        if (!res.ok) throw new Error('课件不存在或已被删除');
+        return res.json();
+      })
+      .then(data => setNote(data))
+      .catch(err => {
+        setError(err.message);
+        setNote({ content: '' }); // 防止页面崩溃
+      });
   }, [params.id]);
 
   const renderHTML = (text: string) => {
@@ -51,7 +59,6 @@ export default function StudentPage() {
         continue;
       } else { if (t !== "") tableHeaders = []; }
       if (t.startsWith('>')) { processed.push(`- 💡 ${t.replace(/^>\s*/, '').replace(/\[!.*?\]/, '')}`); continue; }
-      // 忽略图片，防止破坏导图
       if (t.startsWith('![')) continue; 
       if (!t.startsWith('#') && !t.startsWith('-') && !t.startsWith('*') && t.length > 30 && t.includes('。')) {
         const parts = t.split('。').filter(p => p.trim());
@@ -72,6 +79,7 @@ export default function StudentPage() {
     }
   }, [tab, note]);
 
+  if (error) return <div style={{height:'100vh', display:'flex', alignItems:'center', justifyContent:'center', color:'#dc2626', background:'#f8fafc', fontSize:'18px', fontWeight:'bold'}}>❌ {error}</div>;
   if (!note) return <div style={{height:'100vh', display:'flex', alignItems:'center', justifyContent:'center', color:'#94a3b8', background:'#f8fafc', fontSize:'18px', fontWeight:'bold'}}>读取课件中...</div>;
 
   const premiumCSS = `
@@ -79,13 +87,20 @@ export default function StudentPage() {
     .glass-nav { background: rgba(255, 255, 255, 0.7); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); border-bottom: 1px solid rgba(255, 255, 255, 0.4); box-shadow: 0 4px 30px rgba(0, 0, 0, 0.03); }
     .glass-container { background: rgba(255, 255, 255, 0.85); backdrop-filter: blur(24px); -webkit-backdrop-filter: blur(24px); border: 1px solid rgba(255, 255, 255, 0.8); box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.1); border-radius: 24px; padding: 50px 60px; margin: 40px auto; width: 95%; max-width: 1400px; }
     
+    @media (max-width: 768px) {
+      .glass-container { padding: 30px 20px; width: 98%; margin: 20px auto; border-radius: 16px; }
+      .glass-nav { padding: 0 20px !important; }
+      .nav-btn { padding: 6px 12px; font-size: 14px; }
+      .preview-content h1 { font-size: 28px; }
+    }
+
     .preview-content img { max-width: 100%; border-radius: 12px; box-shadow: 0 10px 25px -5px rgba(0,0,0,0.1); margin: 32px auto; display: block; }
     .preview-content h1 { background: linear-gradient(135deg, #0f172a, #3b82f6); -webkit-background-clip: text; -webkit-text-fill-color: transparent; font-size: 40px; font-weight: 900; text-align: center; margin-bottom: 40px; padding-bottom: 24px; border-bottom: 1px solid rgba(0,0,0,0.05); letter-spacing: 2px; }
     .preview-content h2 { font-size: 24px; font-weight: 700; color: #0f172a; margin-top: 48px; margin-bottom: 24px; display: flex; alignItems: center; }
     .preview-content h2::before { content: ''; display: inline-block; width: 6px; height: 24px; background: linear-gradient(to bottom, #3b82f6, #60a5fa); margin-right: 14px; border-radius: 4px; }
     .preview-content p { font-size: 17px; line-height: 1.9; color: #334155; margin-bottom: 24px; }
     .preview-content blockquote { background: linear-gradient(to right, rgba(59,130,246,0.1), rgba(59,130,246,0.02)); border-left: 4px solid #3b82f6; padding: 20px 24px; border-radius: 0 16px 16px 0; margin: 32px 0; font-size: 16px; color: #1e293b; box-shadow: 0 4px 6px rgba(0,0,0,0.02); }
-    .preview-content table { width: 100%; border-collapse: separate; border-spacing: 0; margin: 32px 0; border-radius: 16px; overflow: hidden; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.05), 0 4px 6px -2px rgba(0,0,0,0.02); border: 1px solid rgba(0,0,0,0.05); }
+    .preview-content table { width: 100%; border-collapse: separate; border-spacing: 0; margin: 32px 0; border-radius: 16px; overflow: hidden; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.05), 0 4px 6px -2px rgba(0,0,0,0.02); border: 1px solid rgba(0,0,0,0.05); display: block; overflow-x: auto; white-space: nowrap; }
     .preview-content th, .preview-content td { padding: 16px 24px; text-align: left; }
     .preview-content th { background: #f8fafc; font-weight: 700; color: #0f172a; border-bottom: 2px solid #e2e8f0; text-transform: uppercase; font-size: 14px; letter-spacing: 1px;}
     .preview-content td { background: #ffffff; border-bottom: 1px solid #f1f5f9; color: #475569; }
