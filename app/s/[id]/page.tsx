@@ -49,8 +49,25 @@ export default function StudentPage() {
   const renderHTML = (text: string) => {
     if (!text) return '';
     try {
-      let html = marked.parse(text) as string;
-      return html.replace(/==([^=]+)==/g, '<mark class="premium-highlight">$1</mark>');
+      let processedText = text;
+      const mathBlocks: string[] = [];
+      
+      processedText = processedText.replace(/\$\$(.*?)\$\$/gs, (match) => {
+        mathBlocks.push(match);
+        return `__MATH_BLOCK_${mathBlocks.length - 1}__`;
+      });
+      processedText = processedText.replace(/\$(.*?)\$/g, (match) => {
+        mathBlocks.push(match);
+        return `__MATH_INLINE_${mathBlocks.length - 1}__`;
+      });
+
+      let html = marked.parse(processedText) as string;
+      html = html.replace(/==([^=]+)==/g, '<mark class="premium-highlight">$1</mark>');
+
+      html = html.replace(/__MATH_BLOCK_(\d+)__/g, (match, p1) => mathBlocks[p1]);
+      html = html.replace(/__MATH_INLINE_(\d+)__/g, (match, p1) => mathBlocks[p1]);
+
+      return html;
     } catch (e) { return text; }
   };
 
@@ -96,7 +113,6 @@ export default function StudentPage() {
     }
   }, [tab, note]);
 
-  // 【核心修复】：挂载后自动扫描并渲染数学公式
   useEffect(() => {
     if (tab === 'doc' && note?.content) {
       loadKaTeX().then(() => {
@@ -149,7 +165,6 @@ export default function StudentPage() {
     .nav-btn.inactive { background: transparent; color: #64748b; }
     .nav-btn.inactive:hover { color: #334155; background: rgba(255,255,255,0.5); }
 
-    /* 公式渲染优化 */
     .katex-display { margin: 24px 0; overflow-x: auto; overflow-y: hidden; padding: 10px 0; text-align: center; }
   `;
 
@@ -171,7 +186,6 @@ export default function StudentPage() {
       <main style={{ flex: 1, overflow: 'auto', position: 'relative' }}>
         {tab === 'doc' ? (
           <div style={{ padding: '20px' }}>
-            {/* 增加了 id="preview-container" 让数学引擎抓取 */}
             <div id="preview-container" className="glass-container preview-content">
                <div dangerouslySetInnerHTML={{ __html: renderHTML(note.content) }} />
             </div>

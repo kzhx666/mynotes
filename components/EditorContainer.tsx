@@ -72,8 +72,25 @@ export default function EditorContainer() {
   const renderHTML = (text: string) => {
     if (!text) return '';
     try {
-      let html = marked.parse(text) as string;
-      return html.replace(/==([^=]+)==/g, '<mark style="background:#fee2e2;color:#dc2626;padding:0 4px;border-radius:4px;font-weight:bold">$1</mark>');
+      let processedText = text;
+      const mathBlocks: string[] = [];
+      
+      processedText = processedText.replace(/\$\$(.*?)\$\$/gs, (match) => {
+        mathBlocks.push(match);
+        return `__MATH_BLOCK_${mathBlocks.length - 1}__`;
+      });
+      processedText = processedText.replace(/\$(.*?)\$/g, (match) => {
+        mathBlocks.push(match);
+        return `__MATH_INLINE_${mathBlocks.length - 1}__`;
+      });
+
+      let html = marked.parse(processedText) as string;
+      html = html.replace(/==([^=]+)==/g, '<mark style="background:#fee2e2;color:#dc2626;padding:0 4px;border-radius:4px;font-weight:bold">$1</mark>');
+
+      html = html.replace(/__MATH_BLOCK_(\d+)__/g, (match, p1) => mathBlocks[p1]);
+      html = html.replace(/__MATH_INLINE_(\d+)__/g, (match, p1) => mathBlocks[p1]);
+
+      return html;
     } catch (e) { return text; }
   };
 
@@ -207,7 +224,6 @@ export default function EditorContainer() {
     };
   }, [editorKey]); 
 
-  // 【核心修复】：监听预览内容变化，动态渲染数学公式
   useEffect(() => {
     if (activeNote?.content && (viewMode === 'preview' || viewMode === 'both')) {
       loadKaTeX().then(() => {
@@ -348,7 +364,6 @@ export default function EditorContainer() {
             <div style={{ flex: 1, backgroundColor: '#f8fafc', overflowY: 'auto', minWidth: 0 }}>
               {showMindmap ? <svg ref={svgRef} style={{ width: '100%', height: '100%', minHeight: '500px' }}></svg> : (
                 <div style={{ padding: '40px' }}>
-                  {/* 增加了 id="preview-container" 让数学引擎抓取 */}
                   <div id="preview-container" className="preview-content" style={{ maxWidth: '800px', margin: '0 auto', background: '#fff', padding: '50px', borderRadius: '12px', boxShadow: '0 4px 20px rgba(0,0,0,0.05)', minHeight: '80vh' }}>
                     <div dangerouslySetInnerHTML={{ __html: renderHTML(activeNote.content || '') }} />
                   </div>
