@@ -7,6 +7,24 @@ import { marked } from 'marked';
 
 const transformer = new Transformer();
 
+const loadKaTeX = () => {
+  return new Promise((resolve) => {
+    if ((window as any).renderMathInElement) return resolve(true);
+    const link = document.createElement('link');
+    link.rel = 'stylesheet'; link.href = 'https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css';
+    document.head.appendChild(link);
+    const script = document.createElement('script');
+    script.src = 'https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js';
+    script.onload = () => {
+      const autoRender = document.createElement('script');
+      autoRender.src = 'https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js';
+      autoRender.onload = () => resolve(true);
+      document.head.appendChild(autoRender);
+    };
+    document.head.appendChild(script);
+  });
+};
+
 export default function EditorContainer() {
   const [notes, setNotes] = useState<any[]>([]);
   const [activeNote, setActiveNote] = useState<any>(null);
@@ -38,7 +56,6 @@ export default function EditorContainer() {
 
   useEffect(() => { loadData(); }, []);
 
-  // 30秒无感自动保存
   useEffect(() => {
     const timer = setInterval(async () => {
       const current = activeNoteRef.current;
@@ -98,7 +115,6 @@ export default function EditorContainer() {
     .tree-item-active { background-color: #2563eb !important; color: white !important; }
     .ctx-menu-item:hover { background-color: #f1f5f9; color: #2563eb; }
     .no-scrollbar::-webkit-scrollbar { display: none; }
-    /* 取消了导致布局崩溃的 override，把控制权还给 Vditor */
     .vditor { border: none !important; }
     .vditor-toolbar { border-bottom: 1px solid #e2e8f0 !important; background: #f8fafc !important; }
     .preview-content table { width: 100%; border-collapse: collapse; margin: 16px 0; font-size: 14px; }
@@ -111,24 +127,22 @@ export default function EditorContainer() {
     .preview-content p { line-height: 1.7; margin-bottom: 16px; color: #334155; }
     .preview-content h1 { font-size: 28px; font-weight: 800; border-bottom: 2px solid #f1f5f9; padding-bottom: 12px; margin-bottom: 24px; color: #0f172a; }
     .preview-content h2 { font-size: 20px; font-weight: 700; margin-top: 32px; margin-bottom: 16px; color: #1e293b; border-left: 4px solid #2563eb; padding-left: 12px; }
+    .katex-display { margin: 16px 0; overflow-x: auto; overflow-y: hidden; padding: 10px 0; text-align: center; }
   `;
 
-  // 精准计算是否应该渲染编辑器 DOM
   const showEditor = (viewMode === 'editor' || viewMode === 'both') && activeNote && !activeNote.is_folder;
-  // 生成独一无二的生命周期 Key，确保切换笔记或改变视图模式时，编辑器能在真实尺寸下重建
   const editorKey = activeNote ? `${activeNote.id}-${viewMode}` : 'none';
 
-  // 【核心修复】：带安全拦截机制的防闪烁初始化
   useEffect(() => {
     if (!showEditor) return;
     
-    let isCanceled = false; // 竞态拦截器
+    let isCanceled = false; 
     let vditorInstance: any = null;
-    const vditorId = `vditor-${activeNote.id}`; // 动态 DOM ID，防止实例打架
+    const vditorId = `vditor-${activeNote.id}`;
 
     const initVditor = async () => {
       const VditorModule = await import('vditor');
-      if (isCanceled) return; // 如果此时用户已经切走了，直接拦截并抛弃！
+      if (isCanceled) return; 
       
       const Vditor = VditorModule.default;
       vditorInstance = new Vditor(vditorId, {
@@ -164,7 +178,7 @@ export default function EditorContainer() {
         input: (val) => { if(activeNoteRef.current) activeNoteRef.current.content = val; },
         after: () => { 
           if (isCanceled) { 
-            vditorInstance.destroy(); // 最后的安全网
+            vditorInstance.destroy(); 
             return; 
           }
           vditorRef.current = vditorInstance; 
@@ -180,11 +194,10 @@ export default function EditorContainer() {
       });
     };
 
-    // 延迟 20 毫秒，确保 DOM 节点不仅挂载了，而且浏览器已经计算出了真实的宽度
     setTimeout(initVditor, 20);
 
     return () => { 
-      isCanceled = true; // 用户切换了，立刻激活拦截器
+      isCanceled = true;
       if (vditorRef.current) {
         try { vditorRef.current.destroy(); } catch(e) {}
         vditorRef.current = null;
@@ -193,6 +206,21 @@ export default function EditorContainer() {
       }
     };
   }, [editorKey]); 
+
+  // 【核心修复】：监听预览内容变化，动态渲染数学公式
+  useEffect(() => {
+    if (activeNote?.content && (viewMode === 'preview' || viewMode === 'both')) {
+      loadKaTeX().then(() => {
+        const el = document.getElementById('preview-container');
+        if (el && (window as any).renderMathInElement) {
+          (window as any).renderMathInElement(el, {
+            delimiters: [ {left: '$$', right: '$$', display: true}, {left: '$', right: '$', display: false} ],
+            throwOnError: false
+          });
+        }
+      });
+    }
+  }, [activeNote?.content, viewMode]);
 
   useEffect(() => {
     if (showMindmap && svgRef.current && activeNote && !activeNote.is_folder) {
@@ -310,7 +338,6 @@ export default function EditorContainer() {
         </header>
 
         <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
-          {/* 【修复】：放弃 display:none 这种危险做法。使用动态渲染控制，只要它存在，就必定占据 1 的比例 */}
           {showEditor && (
             <div style={{ flex: 1, position: 'relative', borderRight: viewMode==='both' ? '1px solid #e2e8f0' : 'none', minWidth: 0 }}>
               <div key={editorKey} id={`vditor-${activeNote.id}`} style={{ width: '100%', height: '100%' }}></div>
@@ -321,7 +348,8 @@ export default function EditorContainer() {
             <div style={{ flex: 1, backgroundColor: '#f8fafc', overflowY: 'auto', minWidth: 0 }}>
               {showMindmap ? <svg ref={svgRef} style={{ width: '100%', height: '100%', minHeight: '500px' }}></svg> : (
                 <div style={{ padding: '40px' }}>
-                  <div className="preview-content" style={{ maxWidth: '800px', margin: '0 auto', background: '#fff', padding: '50px', borderRadius: '12px', boxShadow: '0 4px 20px rgba(0,0,0,0.05)', minHeight: '80vh' }}>
+                  {/* 增加了 id="preview-container" 让数学引擎抓取 */}
+                  <div id="preview-container" className="preview-content" style={{ maxWidth: '800px', margin: '0 auto', background: '#fff', padding: '50px', borderRadius: '12px', boxShadow: '0 4px 20px rgba(0,0,0,0.05)', minHeight: '80vh' }}>
                     <div dangerouslySetInnerHTML={{ __html: renderHTML(activeNote.content || '') }} />
                   </div>
                 </div>

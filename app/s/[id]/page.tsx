@@ -7,6 +7,24 @@ import { marked } from 'marked';
 
 const transformer = new Transformer();
 
+const loadKaTeX = () => {
+  return new Promise((resolve) => {
+    if ((window as any).renderMathInElement) return resolve(true);
+    const link = document.createElement('link');
+    link.rel = 'stylesheet'; link.href = 'https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css';
+    document.head.appendChild(link);
+    const script = document.createElement('script');
+    script.src = 'https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js';
+    script.onload = () => {
+      const autoRender = document.createElement('script');
+      autoRender.src = 'https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js';
+      autoRender.onload = () => resolve(true);
+      document.head.appendChild(autoRender);
+    };
+    document.head.appendChild(script);
+  });
+};
+
 export default function StudentPage() {
   const params = useParams();
   const [note, setNote] = useState<any>(null);
@@ -15,7 +33,6 @@ export default function StudentPage() {
   const svgRef = useRef<SVGSVGElement>(null);
   const mmRef = useRef<any>(null);
 
-  // 【核心修改】：调用专属公开 API，且只获取这一篇的数据
   useEffect(() => {
     fetch(`/api/share/${params.id}`)
       .then(res => {
@@ -25,7 +42,7 @@ export default function StudentPage() {
       .then(data => setNote(data))
       .catch(err => {
         setError(err.message);
-        setNote({ content: '' }); // 防止页面崩溃
+        setNote({ content: '' }); 
       });
   }, [params.id]);
 
@@ -79,6 +96,21 @@ export default function StudentPage() {
     }
   }, [tab, note]);
 
+  // 【核心修复】：挂载后自动扫描并渲染数学公式
+  useEffect(() => {
+    if (tab === 'doc' && note?.content) {
+      loadKaTeX().then(() => {
+        const el = document.getElementById('preview-container');
+        if (el && (window as any).renderMathInElement) {
+          (window as any).renderMathInElement(el, {
+            delimiters: [ {left: '$$', right: '$$', display: true}, {left: '$', right: '$', display: false} ],
+            throwOnError: false
+          });
+        }
+      });
+    }
+  }, [note?.content, tab]);
+
   if (error) return <div style={{height:'100vh', display:'flex', alignItems:'center', justifyContent:'center', color:'#dc2626', background:'#f8fafc', fontSize:'18px', fontWeight:'bold'}}>❌ {error}</div>;
   if (!note) return <div style={{height:'100vh', display:'flex', alignItems:'center', justifyContent:'center', color:'#94a3b8', background:'#f8fafc', fontSize:'18px', fontWeight:'bold'}}>读取课件中...</div>;
 
@@ -116,6 +148,9 @@ export default function StudentPage() {
     .nav-btn.active { background: #ffffff; color: #2563eb; box-shadow: 0 4px 12px rgba(0,0,0,0.08); transform: translateY(-1px); }
     .nav-btn.inactive { background: transparent; color: #64748b; }
     .nav-btn.inactive:hover { color: #334155; background: rgba(255,255,255,0.5); }
+
+    /* 公式渲染优化 */
+    .katex-display { margin: 24px 0; overflow-x: auto; overflow-y: hidden; padding: 10px 0; text-align: center; }
   `;
 
   return (
@@ -136,7 +171,8 @@ export default function StudentPage() {
       <main style={{ flex: 1, overflow: 'auto', position: 'relative' }}>
         {tab === 'doc' ? (
           <div style={{ padding: '20px' }}>
-            <div className="glass-container preview-content">
+            {/* 增加了 id="preview-container" 让数学引擎抓取 */}
+            <div id="preview-container" className="glass-container preview-content">
                <div dangerouslySetInnerHTML={{ __html: renderHTML(note.content) }} />
             </div>
           </div>
