@@ -34,6 +34,7 @@ export default function EditorContainer() {
   const [searchTerm, setSearchTerm] = useState('');
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
   const [menuState, setMenuState] = useState<{ id: string, x: number, y: number, is_folder: boolean, note: any, mode: 'default' | 'move' } | null>(null);
+  const [saveStatus, setSaveStatus] = useState(''); 
   
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [isMobile, setIsMobile] = useState(false);
@@ -52,11 +53,8 @@ export default function EditorContainer() {
     const checkMobile = () => {
       const mobile = window.innerWidth <= 768;
       setIsMobile(mobile);
-      if (mobile) {
-        setSidebarOpen(false); 
-      } else {
-        setSidebarOpen(true);
-      }
+      if (mobile) setSidebarOpen(false); 
+      else setSidebarOpen(true);
     };
     checkMobile();
     window.addEventListener('resize', checkMobile);
@@ -76,8 +74,6 @@ export default function EditorContainer() {
   };
 
   useEffect(() => { loadData(); }, []);
-
-  // 【核心修改】：已彻底移除 setInterval 自动保存逻辑和 saveStatus 状态
 
   const renderHTML = (text: string) => {
     if (!text) return '';
@@ -102,32 +98,69 @@ export default function EditorContainer() {
 
   const transformForMarkmap = (md: string) => {
     if (!md) return '';
-    const lines = md.split('\n');
+    let cleanMd = md.replace(/\$\$\s*([\s\S]*?)\s*\$\$/g, (match, p1) => {
+      return '$' + p1.replace(/\n/g, ' ') + '$';
+    });
+    cleanMd = cleanMd.replace(/\$\$/g, '$');
+
+    const lines = cleanMd.split('\n');
     let processed = [];
     let tableHeaders: string[] = [];
 
     for (let line of lines) {
-      let t = line.trim();
+      let rawLine = line;
+      let t = rawLine.trim();
       if (!t) continue;
+
+      // 保留原文缩进，维持父子节点层次
+      const indentMatch = rawLine.match(/^(\s*)/);
+      const indent = indentMatch ? indentMatch[1] : '';
+
       if (t.startsWith('|')) {
         if (t.includes('---')) continue; 
         const cells = t.split('|').map(c => c.trim()).filter(c => c !== "");
         if (cells.length > 0) {
-          if (tableHeaders.length === 0) { tableHeaders = cells; processed.push(`- 数据表格`); } 
+          if (tableHeaders.length === 0) { tableHeaders = cells; processed.push(`${indent}- 📊 数据表格`); } 
           else {
-            processed.push(`  - ${cells[0]}`);
-            cells.slice(1).forEach((cell, idx) => { if (cell) processed.push(`    - ${tableHeaders[idx + 1] || '属性'}：${cell}`); });
+            processed.push(`${indent}  - ${cells[0]}`);
+            cells.slice(1).forEach((cell, idx) => { if (cell) processed.push(`${indent}    - ${tableHeaders[idx + 1] || '属性'}：${cell}`); });
           }
         }
         continue;
       } else { if (t !== "") tableHeaders = []; }
-      if (t.startsWith('>')) { processed.push(`- ${t.replace(/^>\s*/, '').replace(/\[!.*?\]/, '【提示】')}`); continue; }
-      if (!t.startsWith('#') && !t.startsWith('-') && !t.startsWith('*') && t.length > 30 && t.includes('。')) {
+
+      if (t.startsWith('>')) { processed.push(`${indent}- 💡 ${t.replace(/^>\s*/, '').replace(/\[!.*?\]/, '')}`); continue; }
+      if (t.startsWith('![')) continue; 
+
+      if (t.startsWith('#')) { processed.push(rawLine); continue; }
+
+      // 【核心升级】：识别纯加粗短文本（如：**3. 耐水性**），强制转为真正的标题节点
+      if (t.startsWith('**') && t.endsWith('**') && t.length < 80) {
+          processed.push(`${indent}##### ${t}`);
+          continue;
+      }
+      
+      // 【核心升级】：识别顶格的数字标号伪标题（如：6. 填充率与空隙率）
+      if (/^\d+\.\s/.test(t) && !rawLine.startsWith(' ') && !t.startsWith('**')) {
+          processed.push(`##### **${t}**`);
+          continue;
+      }
+
+      // 若已经是列表，则完美保留缩进
+      if (t.startsWith('- ') || t.startsWith('* ') || /^\d+\.\s/.test(t)) {
+          processed.push(rawLine);
+          continue;
+      }
+
+      // 长句拆分保留缩进
+      if (t.length > 30 && t.includes('。')) {
         const parts = t.split('。').filter(p => p.trim());
-        processed.push(`- ${parts[0]}。`); parts.slice(1).forEach(p => processed.push(`  - ${p}。`));
+        processed.push(`${indent}- ${parts[0]}。`); 
+        parts.slice(1).forEach(p => processed.push(`${indent}  - ${p}。`));
         continue;
       }
-      processed.push(t.startsWith('#') || t.startsWith('-') ? t : `- ${t}`);
+
+      processed.push(`${indent}- ${t}`);
     }
     return processed.join('\n').replace(/==([^=]+)==/g, '<span style="color:#dc2626; background:#fee2e2; padding:0 4px; border-radius:4px; font-weight:bold;">$1</span>');
   };
@@ -151,7 +184,8 @@ export default function EditorContainer() {
     .preview-content h1 { font-size: 28px; font-weight: 800; border-bottom: 2px solid #f1f5f9; padding-bottom: 12px; margin-bottom: 24px; color: #0f172a; }
     .preview-content h2 { font-size: 20px; font-weight: 700; margin-top: 32px; margin-bottom: 16px; color: #1e293b; border-left: 4px solid #2563eb; padding-left: 12px; }
     .katex-display { margin: 16px 0; overflow-x: auto; overflow-y: hidden; padding: 10px 0; text-align: center; }
-    
+    foreignObject { overflow: visible !important; }
+    .markmap-foreign { overflow: visible !important; }
     .admin-sidebar { transition: transform 0.3s ease; z-index: 50; }
     .admin-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 40; display: none; }
     @media (max-width: 768px) {
@@ -249,7 +283,7 @@ export default function EditorContainer() {
       const cleanContent = transformForMarkmap(previewContent);
       const { root } = transformer.transform(cleanContent);
       if (mmRef.current) mmRef.current.destroy();
-      mmRef.current = Markmap.create(svgRef.current, { autoFit: true, duration: 300, paddingX: 30 }, root);
+      mmRef.current = Markmap.create(svgRef.current, { autoFit: true, duration: 300, paddingX: 30, spacingVertical: 40 }, root);
     }
   }, [showMindmap, previewContent]);
 
@@ -275,7 +309,7 @@ export default function EditorContainer() {
 
   const createItem = async (title: string, isFolder: boolean, parentId: string | null) => {
     await fetch('/api/notes', { method: 'POST', body: JSON.stringify({title, is_folder: isFolder?1:0, parent_id: parentId}), headers: {'Content-Type': 'application/json'} });
-    loadData();
+    const r = await fetch('/api/notes'); const data = await r.json(); setNotes(data);
   };
 
   const adjustOrder = async (note: any, direction: 'up' | 'down') => {
@@ -283,7 +317,7 @@ export default function EditorContainer() {
     const newOrder = direction === 'up' ? currentOrder - 10 : currentOrder + 10;
     await fetch('/api/notes', { method: 'PUT', body: JSON.stringify({...note, sort_order: newOrder}), headers: {'Content-Type': 'application/json'} });
     setMenuState(null);
-    loadData();
+    const r = await fetch('/api/notes'); const data = await r.json(); setNotes(data);
   };
 
   const handleLogout = async () => {
@@ -366,11 +400,8 @@ export default function EditorContainer() {
           
           <div className="header-btn-group" style={{ display: 'flex', gap: '8px' }}>
             {showMindmap && !isMobile && <button onClick={downloadMindmap} style={{ padding: '8px 20px', borderRadius: '30px', border: '1px solid #10b981', cursor: 'pointer', background: '#fff', color: '#10b981', fontWeight:'bold', whiteSpace: 'nowrap' }}>下载</button>}
-            
             {!activeNote?.is_folder && <button onClick={() => setShowMindmap(!showMindmap)} style={{ padding: '8px 16px', borderRadius: '30px', border: '1px solid #e2e8f0', cursor: 'pointer', background: showMindmap ? '#2563eb' : '#fff', color: showMindmap ? '#fff' : '#475569', whiteSpace: 'nowrap' }}>{showMindmap?'课件':'导图'}</button>}
-            
             <button onClick={async ()=>{await fetch('/api/backup',{method:'POST'}); alert('云端备份已启动');}} style={{ backgroundColor: '#3b82f6', color: '#fff', border: 'none', padding: '8px 16px', borderRadius: '30px', cursor: 'pointer', whiteSpace: 'nowrap' }}>{isMobile ? '备份' : '云端备份'}</button>
-            
             <button onClick={async ()=>{if(activeNote && !activeNote.is_folder) { await fetch('/api/notes',{method:'PUT', body:JSON.stringify(activeNote), headers:{'Content-Type':'application/json'}}); alert('保存成功'); } }} style={{ backgroundColor: '#10b981', color: '#fff', border: 'none', padding: '8px 16px', borderRadius: '30px', cursor: 'pointer', whiteSpace: 'nowrap' }}>保存</button>
           </div>
         </header>
@@ -416,15 +447,15 @@ export default function EditorContainer() {
                 <div onClick={()=>{prompt('分享链接', window.location.origin + '/s/' + menuState.id); setMenuState(null);}} className="ctx-menu-item" style={{padding:'10px 14px', cursor:'pointer', display:'flex', gap:'8px'}}><Share2 size={14}/> 分享链接</div>
                 {!menuState.is_folder && <div onClick={()=>{handleExport(menuState.note, 'html'); setMenuState(null);}} className="ctx-menu-item" style={{padding:'10px 14px', cursor:'pointer', display:'flex', gap:'8px'}}><FileCode size={14}/> 导出 HTML</div>}
                 {!menuState.is_folder && <div onClick={()=>{handleExport(menuState.note, 'pdf'); setMenuState(null);}} className="ctx-menu-item" style={{padding:'10px 14px', cursor:'pointer', display:'flex', gap:'8px'}}><Download size={14}/> 导出 PDF</div>}
-                <div onClick={()=>{const t=prompt('重命名', menuState.note.title);if(t){ fetch('/api/notes',{method:'PUT',body:JSON.stringify({...menuState.note, title:t}),headers:{'Content-Type':'application/json'}}).then(()=>loadData()); setMenuState(null);}}} className="ctx-menu-item" style={{padding:'10px 14px', cursor:'pointer', display:'flex', gap:'8px', borderTop:'1px solid #f1f5f9'}}><Edit2 size={14}/> 重命名</div>
-                <div onClick={async ()=>{if(confirm('确定删除?')){await fetch('/api/notes',{method:'DELETE', body:JSON.stringify({id:menuState.id}), headers:{'Content-Type':'application/json'}}); loadData(); setMenuState(null);}}} className="ctx-menu-item" style={{padding:'10px 14px', cursor:'pointer', display:'flex', gap:'8px', color:'#dc2626'}}><Trash2 size={14}/> 删除</div>
+                <div onClick={()=>{const t=prompt('重命名', menuState.note.title);if(t){ fetch('/api/notes',{method:'PUT',body:JSON.stringify({...menuState.note, title:t}),headers:{'Content-Type':'application/json'}}).then(()=>{const r = fetch('/api/notes').then(res=>res.json()).then(data=>setNotes(data))}); setMenuState(null);}}} className="ctx-menu-item" style={{padding:'10px 14px', cursor:'pointer', display:'flex', gap:'8px', borderTop:'1px solid #f1f5f9'}}><Edit2 size={14}/> 重命名</div>
+                <div onClick={async ()=>{if(confirm('确定删除?')){await fetch('/api/notes',{method:'DELETE', body:JSON.stringify({id:menuState.id}), headers:{'Content-Type':'application/json'}}); const r = await fetch('/api/notes'); const data = await r.json(); setNotes(data); setMenuState(null);}}} className="ctx-menu-item" style={{padding:'10px 14px', cursor:'pointer', display:'flex', gap:'8px', color:'#dc2626'}}><Trash2 size={14}/> 删除</div>
               </>
             ) : (
               <div style={{ maxHeight:'300px', overflowY:'auto' }}>
                 <div style={{padding:'10px 14px', fontWeight:'bold', background:'#f8fafc'}}>移动至</div>
-                <div onClick={async ()=>{await fetch('/api/notes',{method:'PUT',body:JSON.stringify({...menuState.note, parent_id: null}),headers:{'Content-Type':'application/json'}}); loadData(); setMenuState(null);}} className="ctx-menu-item" style={{padding:'10px 14px', cursor:'pointer'}}>根目录</div>
+                <div onClick={async ()=>{await fetch('/api/notes',{method:'PUT',body:JSON.stringify({...menuState.note, parent_id: null}),headers:{'Content-Type':'application/json'}}); const r = await fetch('/api/notes'); const data = await r.json(); setNotes(data); setMenuState(null);}} className="ctx-menu-item" style={{padding:'10px 14px', cursor:'pointer'}}>根目录</div>
                 {notes.filter(n => n.is_folder === 1 && n.id !== menuState.id).map(f => (
-                  <div key={f.id} onClick={async ()=>{await fetch('/api/notes',{method:'PUT',body:JSON.stringify({...menuState.note, parent_id: f.id}),headers:{'Content-Type':'application/json'}}); loadData(); setMenuState(null);}} className="ctx-menu-item" style={{padding:'10px 14px', cursor:'pointer', display:'flex', gap:'8px'}}><Folder size={14} color="#60a5fa"/> {f.title}</div>
+                  <div key={f.id} onClick={async ()=>{await fetch('/api/notes',{method:'PUT',body:JSON.stringify({...menuState.note, parent_id: f.id}),headers:{'Content-Type':'application/json'}}); const r = await fetch('/api/notes'); const data = await r.json(); setNotes(data); setMenuState(null);}} className="ctx-menu-item" style={{padding:'10px 14px', cursor:'pointer', display:'flex', gap:'8px'}}><Folder size={14} color="#60a5fa"/> {f.title}</div>
                 ))}
               </div>
             )}

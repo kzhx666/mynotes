@@ -42,11 +42,9 @@ export default function StudentPage() {
     const checkMobile = () => {
       const mobile = window.innerWidth <= 768;
       setIsMobile(mobile);
+      if (mobile) setSidebarOpen(false);
     };
     checkMobile(); 
-    if (window.innerWidth <= 768) {
-      setSidebarOpen(false);
-    }
     window.addEventListener('resize', checkMobile);
     return () => window.removeEventListener('resize', checkMobile);
   }, []);
@@ -76,7 +74,6 @@ export default function StudentPage() {
     try {
       let processedText = text;
       const mathBlocks: string[] = [];
-      
       processedText = processedText.replace(/\$\$(.*?)\$\$/gs, (match) => {
         mathBlocks.push(match);
         return `BLOCKMATHMARKER${mathBlocks.length - 1}ENDMARKER`;
@@ -85,46 +82,75 @@ export default function StudentPage() {
         mathBlocks.push(match);
         return `INLINEMATHMARKER${mathBlocks.length - 1}ENDMARKER`;
       });
-
       let html = marked.parse(processedText) as string;
       html = html.replace(/==([^=]+)==/g, '<mark class="premium-highlight">$1</mark>');
-
       html = html.replace(/BLOCKMATHMARKER(\d+)ENDMARKER/g, (match, p1) => mathBlocks[p1]);
       html = html.replace(/INLINEMATHMARKER(\d+)ENDMARKER/g, (match, p1) => mathBlocks[p1]);
-
       return html;
     } catch (e) { return text; }
   };
 
   const transformForMarkmap = (md: string) => {
     if (!md) return '';
-    const lines = md.split('\n');
+    let cleanMd = md.replace(/\$\$\s*([\s\S]*?)\s*\$\$/g, (match, p1) => {
+      return '$' + p1.replace(/\n/g, ' ') + '$';
+    });
+    cleanMd = cleanMd.replace(/\$\$/g, '$');
+
+    const lines = cleanMd.split('\n');
     let processed = [];
     let tableHeaders: string[] = [];
 
     for (let line of lines) {
-      let t = line.trim();
+      let rawLine = line;
+      let t = rawLine.trim();
       if (!t) continue;
+
+      const indentMatch = rawLine.match(/^(\s*)/);
+      const indent = indentMatch ? indentMatch[1] : '';
+
       if (t.startsWith('|')) {
         if (t.includes('---')) continue;
         const cells = t.split('|').map(c => c.trim()).filter(c => c !== "");
         if (cells.length > 0) {
-          if (tableHeaders.length === 0) { tableHeaders = cells; processed.push(`- 📊 数据表格`); } 
+          if (tableHeaders.length === 0) { tableHeaders = cells; processed.push(`${indent}- 📊 数据表格`); } 
           else {
-            processed.push(`  - ${cells[0]}`);
-            cells.slice(1).forEach((cell, idx) => { if (cell) processed.push(`    - ${tableHeaders[idx + 1] || '属性'}：${cell}`); });
+            processed.push(`${indent}  - ${cells[0]}`);
+            cells.slice(1).forEach((cell, idx) => { if (cell) processed.push(`${indent}    - ${tableHeaders[idx + 1] || '属性'}：${cell}`); });
           }
         }
         continue;
       } else { if (t !== "") tableHeaders = []; }
-      if (t.startsWith('>')) { processed.push(`- 💡 ${t.replace(/^>\s*/, '').replace(/\[!.*?\]/, '')}`); continue; }
+
+      if (t.startsWith('>')) { processed.push(`${indent}- 💡 ${t.replace(/^>\s*/, '').replace(/\[!.*?\]/, '')}`); continue; }
       if (t.startsWith('![')) continue; 
-      if (!t.startsWith('#') && !t.startsWith('-') && !t.startsWith('*') && t.length > 30 && t.includes('。')) {
+
+      if (t.startsWith('#')) { processed.push(rawLine); continue; }
+
+      // 【核心升级】：识别纯加粗短文本（如：**3. 耐水性**），强制转为真正的标题节点
+      if (t.startsWith('**') && t.endsWith('**') && t.length < 80) {
+          processed.push(`${indent}##### ${t}`);
+          continue;
+      }
+      
+      // 【核心升级】：识别顶格的数字标号伪标题（如：6. 填充率与空隙率）
+      if (/^\d+\.\s/.test(t) && !rawLine.startsWith(' ') && !t.startsWith('**')) {
+          processed.push(`##### **${t}**`);
+          continue;
+      }
+
+      if (t.startsWith('- ') || t.startsWith('* ') || /^\d+\.\s/.test(t)) {
+          processed.push(rawLine);
+          continue;
+      }
+
+      if (t.length > 30 && t.includes('。')) {
         const parts = t.split('。').filter(p => p.trim());
-        processed.push(`- ${parts[0]}。`); parts.slice(1).forEach(p => processed.push(`  - ${p}。`));
+        processed.push(`${indent}- ${parts[0]}。`); 
+        parts.slice(1).forEach(p => processed.push(`${indent}  - ${p}。`));
         continue;
       }
-      processed.push(t.startsWith('#') || t.startsWith('-') ? t : `- ${t}`);
+      processed.push(`${indent}- ${t}`);
     }
     return processed.join('\n').replace(/==([^=]+)==/g, '<span style="color:#dc2626; background:#fee2e2; padding:0 4px; border-radius:4px; font-weight:bold;">$1</span>');
   };
@@ -214,7 +240,7 @@ export default function StudentPage() {
       const cleanContent = transformForMarkmap(contentToRender);
       const { root } = transformer.transform(cleanContent);
       if (mmRef.current) mmRef.current.destroy();
-      mmRef.current = Markmap.create(svgRef.current, { autoFit: true, duration: 400, paddingX: 40 }, root);
+      mmRef.current = Markmap.create(svgRef.current, { autoFit: true, duration: 400, paddingX: 40, spacingVertical: 40 }, root);
     }
   }, [tab, contentToRender]);
 
@@ -255,6 +281,9 @@ export default function StudentPage() {
     .menu-toggle { display: flex; align-items: center; justify-content: center; background: none; border: none; cursor: pointer; color: #0f172a; margin-right: 16px; padding: 6px; border-radius: 8px; transition: background 0.2s; }
     .menu-toggle:hover { background: rgba(0,0,0,0.05); }
     .mobile-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.3); z-index: 39; backdrop-filter: blur(2px); }
+
+    foreignObject { overflow: visible !important; }
+    .markmap-foreign { overflow: visible !important; }
 
     @media (max-width: 768px) {
       .glass-container { padding: 30px 20px; width: 95%; margin: 20px auto; border-radius: 16px; }
