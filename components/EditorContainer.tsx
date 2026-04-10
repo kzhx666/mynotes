@@ -1,6 +1,6 @@
 "use client";
 import React, { useState, useEffect, useRef } from 'react';
-import { FileText, Layout, Monitor, Share2, MoreVertical, Trash2, Edit2, Folder, ChevronRight, ChevronDown, FolderPlus, FilePlus, Download, FileCode, Search, Move, LogOut, ArrowUp, ArrowDown } from 'lucide-react';
+import { Menu, FileText, Layout, Monitor, Share2, MoreVertical, Trash2, Edit2, Folder, ChevronRight, ChevronDown, FolderPlus, FilePlus, Download, FileCode, Search, Move, LogOut, ArrowUp, ArrowDown } from 'lucide-react';
 import { Transformer } from 'markmap-lib';
 import { Markmap } from 'markmap-view';
 import { marked } from 'marked';
@@ -28,19 +28,40 @@ const loadKaTeX = () => {
 export default function EditorContainer() {
   const [notes, setNotes] = useState<any[]>([]);
   const [activeNote, setActiveNote] = useState<any>(null);
+  const [previewContent, setPreviewContent] = useState('');
   const [viewMode, setViewMode] = useState<'both' | 'editor' | 'preview'>('both');
   const [showMindmap, setShowMindmap] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
   const [menuState, setMenuState] = useState<{ id: string, x: number, y: number, is_folder: boolean, note: any, mode: 'default' | 'move' } | null>(null);
-  const [saveStatus, setSaveStatus] = useState(''); 
   
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [isMobile, setIsMobile] = useState(false);
+
   const vditorRef = useRef<any>(null);
   const svgRef = useRef<SVGSVGElement>(null);
   const mmRef = useRef<any>(null);
   const activeNoteRef = useRef<any>(null); 
 
-  useEffect(() => { activeNoteRef.current = activeNote; }, [activeNote]);
+  useEffect(() => { 
+    activeNoteRef.current = activeNote; 
+    if (activeNote) setPreviewContent(activeNote.content || '');
+  }, [activeNote]);
+
+  useEffect(() => {
+    const checkMobile = () => {
+      const mobile = window.innerWidth <= 768;
+      setIsMobile(mobile);
+      if (mobile) {
+        setSidebarOpen(false); 
+      } else {
+        setSidebarOpen(true);
+      }
+    };
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
 
   const loadData = async () => {
     try {
@@ -56,40 +77,25 @@ export default function EditorContainer() {
 
   useEffect(() => { loadData(); }, []);
 
-  useEffect(() => {
-    const timer = setInterval(async () => {
-      const current = activeNoteRef.current;
-      if (current && !current.is_folder) {
-        setSaveStatus('正在自动保存...');
-        await fetch('/api/notes', { method: 'PUT', body: JSON.stringify(current), headers: { 'Content-Type': 'application/json' }});
-        setSaveStatus('已自动保存于 ' + new Date().toLocaleTimeString());
-        setTimeout(() => setSaveStatus(''), 3000);
-      }
-    }, 30000);
-    return () => clearInterval(timer);
-  }, []);
+  // 【核心修改】：已彻底移除 setInterval 自动保存逻辑和 saveStatus 状态
 
   const renderHTML = (text: string) => {
     if (!text) return '';
     try {
       let processedText = text;
       const mathBlocks: string[] = [];
-      
       processedText = processedText.replace(/\$\$(.*?)\$\$/gs, (match) => {
         mathBlocks.push(match);
-        return `__MATH_BLOCK_${mathBlocks.length - 1}__`;
+        return `BLOCKMATHMARKER${mathBlocks.length - 1}ENDMARKER`;
       });
       processedText = processedText.replace(/\$(.*?)\$/g, (match) => {
         mathBlocks.push(match);
-        return `__MATH_INLINE_${mathBlocks.length - 1}__`;
+        return `INLINEMATHMARKER${mathBlocks.length - 1}ENDMARKER`;
       });
-
       let html = marked.parse(processedText) as string;
       html = html.replace(/==([^=]+)==/g, '<mark style="background:#fee2e2;color:#dc2626;padding:0 4px;border-radius:4px;font-weight:bold">$1</mark>');
-
-      html = html.replace(/__MATH_BLOCK_(\d+)__/g, (match, p1) => mathBlocks[p1]);
-      html = html.replace(/__MATH_INLINE_(\d+)__/g, (match, p1) => mathBlocks[p1]);
-
+      html = html.replace(/BLOCKMATHMARKER(\d+)ENDMARKER/g, (match, p1) => mathBlocks[p1]);
+      html = html.replace(/INLINEMATHMARKER(\d+)ENDMARKER/g, (match, p1) => mathBlocks[p1]);
       return html;
     } catch (e) { return text; }
   };
@@ -145,6 +151,15 @@ export default function EditorContainer() {
     .preview-content h1 { font-size: 28px; font-weight: 800; border-bottom: 2px solid #f1f5f9; padding-bottom: 12px; margin-bottom: 24px; color: #0f172a; }
     .preview-content h2 { font-size: 20px; font-weight: 700; margin-top: 32px; margin-bottom: 16px; color: #1e293b; border-left: 4px solid #2563eb; padding-left: 12px; }
     .katex-display { margin: 16px 0; overflow-x: auto; overflow-y: hidden; padding: 10px 0; text-align: center; }
+    
+    .admin-sidebar { transition: transform 0.3s ease; z-index: 50; }
+    .admin-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 40; display: none; }
+    @media (max-width: 768px) {
+      .admin-sidebar { position: fixed !important; left: 0; top: 0; bottom: 0; transform: translateX(-100%); }
+      .admin-sidebar.open { transform: translateX(0); }
+      .admin-overlay.open { display: block; }
+      .header-btn-group button { padding: 6px 12px !important; font-size: 13px !important; }
+    }
   `;
 
   const showEditor = (viewMode === 'editor' || viewMode === 'both') && activeNote && !activeNote.is_folder;
@@ -152,7 +167,6 @@ export default function EditorContainer() {
 
   useEffect(() => {
     if (!showEditor) return;
-    
     let isCanceled = false; 
     let vditorInstance: any = null;
     const vditorId = `vditor-${activeNote.id}`;
@@ -192,21 +206,13 @@ export default function EditorContainer() {
           },
           'table', 'undo', 'redo'
         ],
-        input: (val) => { if(activeNoteRef.current) activeNoteRef.current.content = val; },
+        input: (val) => { 
+          if(activeNoteRef.current) activeNoteRef.current.content = val; 
+          setPreviewContent(val); 
+        },
         after: () => { 
-          if (isCanceled) { 
-            vditorInstance.destroy(); 
-            return; 
-          }
+          if (isCanceled) { vditorInstance.destroy(); return; }
           vditorRef.current = vditorInstance; 
-          let count = 0;
-          const timer = setInterval(() => {
-            document.querySelectorAll('.vditor-toolbar__item button').forEach(btn => {
-              const tip = btn.getAttribute('aria-label') || btn.getAttribute('data-type');
-              if (tip && !btn.getAttribute('title')) btn.setAttribute('title', tip); 
-            });
-            if(++count > 6) clearInterval(timer);
-          }, 500);
         }
       });
     };
@@ -225,7 +231,7 @@ export default function EditorContainer() {
   }, [editorKey]); 
 
   useEffect(() => {
-    if (activeNote?.content && (viewMode === 'preview' || viewMode === 'both')) {
+    if (previewContent && (viewMode === 'preview' || viewMode === 'both')) {
       loadKaTeX().then(() => {
         const el = document.getElementById('preview-container');
         if (el && (window as any).renderMathInElement) {
@@ -236,16 +242,16 @@ export default function EditorContainer() {
         }
       });
     }
-  }, [activeNote?.content, viewMode]);
+  }, [previewContent, viewMode]);
 
   useEffect(() => {
     if (showMindmap && svgRef.current && activeNote && !activeNote.is_folder) {
-      const cleanContent = transformForMarkmap(activeNote.content);
+      const cleanContent = transformForMarkmap(previewContent);
       const { root } = transformer.transform(cleanContent);
       if (mmRef.current) mmRef.current.destroy();
       mmRef.current = Markmap.create(svgRef.current, { autoFit: true, duration: 300, paddingX: 30 }, root);
     }
-  }, [showMindmap, activeNote?.content]);
+  }, [showMindmap, previewContent]);
 
   const downloadMindmap = () => {
     if (!svgRef.current) return;
@@ -290,7 +296,14 @@ export default function EditorContainer() {
       const isF = note.is_folder === 1; const active = activeNote?.id === note.id; const expanded = expandedFolders.has(note.id);
       return (
         <div key={note.id}>
-          <div onClick={() => isF ? setExpandedFolders(s => {const n=new Set(s); expanded?n.delete(note.id):n.add(note.id); return n;}) : setActiveNote(note)}
+          <div onClick={() => {
+              if (isF) {
+                setExpandedFolders(s => {const n=new Set(s); expanded?n.delete(note.id):n.add(note.id); return n;});
+              } else {
+                setActiveNote(note);
+                if (isMobile) setSidebarOpen(false); 
+              }
+            }}
             className={`tree-item-hover ${active ? 'tree-item-active' : ''}`}
             style={{ display:'flex', alignItems:'center', gap:'8px', padding:'8px 12px', margin:'2px 8px', borderRadius:'8px', cursor:'pointer', paddingLeft: (depth*16+12)+'px', color: active?'#fff':'#cbd5e1' }}>
             {isF ? (expanded?<ChevronDown size={14}/>:<ChevronRight size={14}/>) : <div style={{width:14}}/>}
@@ -308,8 +321,10 @@ export default function EditorContainer() {
     <div style={{ display: 'flex', height: '100vh', width: '100vw', overflow: 'hidden', backgroundColor: '#f8fafc', fontFamily: 'sans-serif' }}>
       <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/vditor/dist/index.css" />
       <style>{globalCSS}</style>
+      
+      <div className={`admin-overlay ${sidebarOpen && isMobile ? 'open' : ''}`} onClick={() => setSidebarOpen(false)}></div>
 
-      <aside style={{ width: '280px', backgroundColor: '#0f172a', display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
+      <aside className={`admin-sidebar ${sidebarOpen ? 'open' : ''}`} style={{ width: '280px', backgroundColor: '#0f172a', display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
         <div style={{ padding: '20px', borderBottom: '1px solid #1e293b', display: 'flex', justifyContent: 'space-between', color: '#fff' }}>
           <span style={{ fontWeight: 'bold' }}>MyNotes</span>
           <div style={{display:'flex', gap:'8px'}}>
@@ -329,43 +344,50 @@ export default function EditorContainer() {
       </aside>
 
       <main style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-        <header style={{ height: '64px', borderBottom: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 24px', flexShrink: 0 }}>
-          <div style={{display:'flex', alignItems:'center', gap:'15px'}}>
-            <span style={{ fontWeight:'bold', color:'#1e293b' }}>{activeNote?.title || '未选择'}</span>
-            <span style={{ fontSize: '12px', color: '#10b981', marginLeft: '10px' }}>{saveStatus}</span>
+        <header style={{ height: '64px', borderBottom: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: isMobile ? '0 10px' : '0 24px', flexShrink: 0, overflowX: 'auto' }}>
+          <div style={{display:'flex', alignItems:'center', gap: isMobile ? '8px' : '15px'}}>
+            {isMobile && (
+              <button onClick={() => setSidebarOpen(true)} style={{ background: 'none', border: 'none', padding: '4px', cursor: 'pointer', color: '#1e293b', display: 'flex' }}>
+                <Menu size={24} />
+              </button>
+            )}
+            <span style={{ fontWeight:'bold', color:'#1e293b', fontSize: isMobile ? '14px' : '16px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: isMobile ? '80px' : 'none' }}>
+              {activeNote?.title || '未选择'}
+            </span>
+            
             {!activeNote?.is_folder && (
               <div style={{ display: 'flex', backgroundColor: '#f1f5f9', padding: '4px', borderRadius: '8px', gap: '4px' }}>
-                <button onClick={()=>setViewMode('editor')} style={{ border:'none', padding:'6px', borderRadius:'6px', cursor:'pointer', backgroundColor: viewMode==='editor'?'white':'transparent' }} title="仅显示编辑器"><FileText size={16}/></button>
-                <button onClick={()=>setViewMode('both')} style={{ border:'none', padding:'6px', borderRadius:'6px', cursor:'pointer', backgroundColor: viewMode==='both'?'white':'transparent' }} title="双栏比对"><Layout size={16}/></button>
-                <button onClick={()=>setViewMode('preview')} style={{ border:'none', padding:'6px', borderRadius:'6px', cursor:'pointer', backgroundColor: viewMode==='preview'?'white':'transparent' }} title="仅显示课件预览"><Monitor size={16}/></button>
+                <button onClick={()=>setViewMode('editor')} style={{ border:'none', padding:'6px', borderRadius:'6px', cursor:'pointer', backgroundColor: viewMode==='editor'?'white':'transparent' }} title="编辑模式"><FileText size={16}/></button>
+                <button onClick={()=>setViewMode('both')} style={{ border:'none', padding:'6px', borderRadius:'6px', cursor:'pointer', backgroundColor: viewMode==='both'?'white':'transparent' }} title="双栏比对/上下分屏"><Layout size={16}/></button>
+                <button onClick={()=>setViewMode('preview')} style={{ border:'none', padding:'6px', borderRadius:'6px', cursor:'pointer', backgroundColor: viewMode==='preview'?'white':'transparent' }} title="预览模式"><Monitor size={16}/></button>
               </div>
             )}
           </div>
           
-          <div style={{ display: 'flex', gap: '12px' }}>
-            {showMindmap && <button onClick={downloadMindmap} style={{ padding: '8px 20px', borderRadius: '30px', border: '1px solid #10b981', cursor: 'pointer', background: '#fff', color: '#10b981', fontWeight:'bold' }}>⬇ 下载导图</button>}
+          <div className="header-btn-group" style={{ display: 'flex', gap: '8px' }}>
+            {showMindmap && !isMobile && <button onClick={downloadMindmap} style={{ padding: '8px 20px', borderRadius: '30px', border: '1px solid #10b981', cursor: 'pointer', background: '#fff', color: '#10b981', fontWeight:'bold', whiteSpace: 'nowrap' }}>下载</button>}
             
-            {!activeNote?.is_folder && <button onClick={() => setShowMindmap(!showMindmap)} style={{ padding: '8px 20px', borderRadius: '30px', border: '1px solid #e2e8f0', cursor: 'pointer', background: showMindmap ? '#2563eb' : '#fff', color: showMindmap ? '#fff' : '#475569' }}>{showMindmap?'退出导图':'生成导图'}</button>}
+            {!activeNote?.is_folder && <button onClick={() => setShowMindmap(!showMindmap)} style={{ padding: '8px 16px', borderRadius: '30px', border: '1px solid #e2e8f0', cursor: 'pointer', background: showMindmap ? '#2563eb' : '#fff', color: showMindmap ? '#fff' : '#475569', whiteSpace: 'nowrap' }}>{showMindmap?'课件':'导图'}</button>}
             
-            <button onClick={async ()=>{await fetch('/api/backup',{method:'POST'}); alert('云端备份已启动');}} style={{ backgroundColor: '#3b82f6', color: '#fff', border: 'none', padding: '8px 20px', borderRadius: '30px', cursor: 'pointer' }}>云端备份</button>
+            <button onClick={async ()=>{await fetch('/api/backup',{method:'POST'}); alert('云端备份已启动');}} style={{ backgroundColor: '#3b82f6', color: '#fff', border: 'none', padding: '8px 16px', borderRadius: '30px', cursor: 'pointer', whiteSpace: 'nowrap' }}>{isMobile ? '备份' : '云端备份'}</button>
             
-            <button onClick={async ()=>{if(activeNote && !activeNote.is_folder) { await fetch('/api/notes',{method:'PUT', body:JSON.stringify(activeNote), headers:{'Content-Type':'application/json'}}); alert('保存成功'); } }} style={{ backgroundColor: '#10b981', color: '#fff', border: 'none', padding: '8px 20px', borderRadius: '30px', cursor: 'pointer' }}>保存</button>
+            <button onClick={async ()=>{if(activeNote && !activeNote.is_folder) { await fetch('/api/notes',{method:'PUT', body:JSON.stringify(activeNote), headers:{'Content-Type':'application/json'}}); alert('保存成功'); } }} style={{ backgroundColor: '#10b981', color: '#fff', border: 'none', padding: '8px 16px', borderRadius: '30px', cursor: 'pointer', whiteSpace: 'nowrap' }}>保存</button>
           </div>
         </header>
 
-        <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
+        <div style={{ flex: 1, display: 'flex', overflow: 'hidden', flexDirection: (isMobile && viewMode === 'both') ? 'column' : 'row' }}>
           {showEditor && (
-            <div style={{ flex: 1, position: 'relative', borderRight: viewMode==='both' ? '1px solid #e2e8f0' : 'none', minWidth: 0 }}>
+            <div style={{ flex: 1, position: 'relative', borderRight: (!isMobile && viewMode==='both') ? '1px solid #e2e8f0' : 'none', borderBottom: (isMobile && viewMode==='both') ? '1px solid #e2e8f0' : 'none', minWidth: 0, minHeight: 0 }}>
               <div key={editorKey} id={`vditor-${activeNote.id}`} style={{ width: '100%', height: '100%' }}></div>
             </div>
           )}
           
           {((viewMode === 'preview' || viewMode === 'both') && activeNote) && (
-            <div style={{ flex: 1, backgroundColor: '#f8fafc', overflowY: 'auto', minWidth: 0 }}>
+            <div style={{ flex: 1, backgroundColor: '#f8fafc', overflowY: 'auto', minWidth: 0, minHeight: 0 }}>
               {showMindmap ? <svg ref={svgRef} style={{ width: '100%', height: '100%', minHeight: '500px' }}></svg> : (
-                <div style={{ padding: '40px' }}>
-                  <div id="preview-container" className="preview-content" style={{ maxWidth: '800px', margin: '0 auto', background: '#fff', padding: '50px', borderRadius: '12px', boxShadow: '0 4px 20px rgba(0,0,0,0.05)', minHeight: '80vh' }}>
-                    <div dangerouslySetInnerHTML={{ __html: renderHTML(activeNote.content || '') }} />
+                <div style={{ padding: isMobile ? '20px' : '40px' }}>
+                  <div id="preview-container" className="preview-content" style={{ maxWidth: '800px', margin: '0 auto', background: '#fff', padding: isMobile ? '20px' : '50px', borderRadius: '12px', boxShadow: '0 4px 20px rgba(0,0,0,0.05)', minHeight: '80vh' }}>
+                    <div dangerouslySetInnerHTML={{ __html: renderHTML(previewContent) }} />
                   </div>
                 </div>
               )}
@@ -388,15 +410,12 @@ export default function EditorContainer() {
               <>
                 {menuState.is_folder && <div onClick={()=>{const t=prompt('新建子文件夹名称'); if(t) createItem(t, true, menuState.id); setMenuState(null);}} className="ctx-menu-item" style={{padding:'10px 14px', cursor:'pointer', display:'flex', gap:'8px'}}><FolderPlus size={14}/> 新建子文件夹</div>}
                 {menuState.is_folder && <div onClick={()=>{const t=prompt('新建笔记名称'); if(t) createItem(t, false, menuState.id); setMenuState(null);}} className="ctx-menu-item" style={{padding:'10px 14px', cursor:'pointer', display:'flex', gap:'8px', borderBottom:'1px solid #f1f5f9'}}><FilePlus size={14}/> 新建笔记</div>}
-                
                 <div onClick={()=>adjustOrder(menuState.note, 'up')} className="ctx-menu-item" style={{padding:'10px 14px', cursor:'pointer', display:'flex', gap:'8px'}}><ArrowUp size={14}/> 向上排移</div>
                 <div onClick={()=>adjustOrder(menuState.note, 'down')} className="ctx-menu-item" style={{padding:'10px 14px', cursor:'pointer', display:'flex', gap:'8px', borderBottom:'1px solid #f1f5f9'}}><ArrowDown size={14}/> 向下排移</div>
-
                 {!menuState.is_folder && <div onClick={()=>setMenuState({...menuState, mode: 'move'})} className="ctx-menu-item" style={{padding:'10px 14px', cursor:'pointer', display:'flex', gap:'8px'}}><Move size={14}/> 移动到...</div>}
-                {!menuState.is_folder && <div onClick={()=>{prompt('分享链接', window.location.origin + '/s/' + menuState.id); setMenuState(null);}} className="ctx-menu-item" style={{padding:'10px 14px', cursor:'pointer', display:'flex', gap:'8px'}}><Share2 size={14}/> 分享链接</div>}
+                <div onClick={()=>{prompt('分享链接', window.location.origin + '/s/' + menuState.id); setMenuState(null);}} className="ctx-menu-item" style={{padding:'10px 14px', cursor:'pointer', display:'flex', gap:'8px'}}><Share2 size={14}/> 分享链接</div>
                 {!menuState.is_folder && <div onClick={()=>{handleExport(menuState.note, 'html'); setMenuState(null);}} className="ctx-menu-item" style={{padding:'10px 14px', cursor:'pointer', display:'flex', gap:'8px'}}><FileCode size={14}/> 导出 HTML</div>}
                 {!menuState.is_folder && <div onClick={()=>{handleExport(menuState.note, 'pdf'); setMenuState(null);}} className="ctx-menu-item" style={{padding:'10px 14px', cursor:'pointer', display:'flex', gap:'8px'}}><Download size={14}/> 导出 PDF</div>}
-                
                 <div onClick={()=>{const t=prompt('重命名', menuState.note.title);if(t){ fetch('/api/notes',{method:'PUT',body:JSON.stringify({...menuState.note, title:t}),headers:{'Content-Type':'application/json'}}).then(()=>loadData()); setMenuState(null);}}} className="ctx-menu-item" style={{padding:'10px 14px', cursor:'pointer', display:'flex', gap:'8px', borderTop:'1px solid #f1f5f9'}}><Edit2 size={14}/> 重命名</div>
                 <div onClick={async ()=>{if(confirm('确定删除?')){await fetch('/api/notes',{method:'DELETE', body:JSON.stringify({id:menuState.id}), headers:{'Content-Type':'application/json'}}); loadData(); setMenuState(null);}}} className="ctx-menu-item" style={{padding:'10px 14px', cursor:'pointer', display:'flex', gap:'8px', color:'#dc2626'}}><Trash2 size={14}/> 删除</div>
               </>

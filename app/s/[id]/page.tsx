@@ -31,9 +31,25 @@ export default function StudentPage() {
   const [activeNoteId, setActiveNoteId] = useState<string | null>(null);
   const [error, setError] = useState('');
   const [tab, setTab] = useState<'doc' | 'map'>('doc');
-  const [menuOpen, setMenuOpen] = useState(false);
+  
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [isMobile, setIsMobile] = useState(false);
+  
   const svgRef = useRef<SVGSVGElement>(null);
   const mmRef = useRef<any>(null);
+
+  useEffect(() => {
+    const checkMobile = () => {
+      const mobile = window.innerWidth <= 768;
+      setIsMobile(mobile);
+    };
+    checkMobile(); 
+    if (window.innerWidth <= 768) {
+      setSidebarOpen(false);
+    }
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
 
   useEffect(() => {
     fetch(`/api/share/${params.id}`)
@@ -44,7 +60,7 @@ export default function StudentPage() {
       .then(d => {
         setData(d);
         if (d.type === 'folder' && d.children?.length > 0) {
-          setActiveNoteId(d.children[0].id); // 默认选中第一节课
+          setActiveNoteId(d.children[0].id); 
         }
       })
       .catch(err => setError(err.message));
@@ -63,18 +79,18 @@ export default function StudentPage() {
       
       processedText = processedText.replace(/\$\$(.*?)\$\$/gs, (match) => {
         mathBlocks.push(match);
-        return `__MATH_BLOCK_${mathBlocks.length - 1}__`;
+        return `BLOCKMATHMARKER${mathBlocks.length - 1}ENDMARKER`;
       });
       processedText = processedText.replace(/\$(.*?)\$/g, (match) => {
         mathBlocks.push(match);
-        return `__MATH_INLINE_${mathBlocks.length - 1}__`;
+        return `INLINEMATHMARKER${mathBlocks.length - 1}ENDMARKER`;
       });
 
       let html = marked.parse(processedText) as string;
       html = html.replace(/==([^=]+)==/g, '<mark class="premium-highlight">$1</mark>');
 
-      html = html.replace(/__MATH_BLOCK_(\d+)__/g, (match, p1) => mathBlocks[p1]);
-      html = html.replace(/__MATH_INLINE_(\d+)__/g, (match, p1) => mathBlocks[p1]);
+      html = html.replace(/BLOCKMATHMARKER(\d+)ENDMARKER/g, (match, p1) => mathBlocks[p1]);
+      html = html.replace(/INLINEMATHMARKER(\d+)ENDMARKER/g, (match, p1) => mathBlocks[p1]);
 
       return html;
     } catch (e) { return text; }
@@ -113,6 +129,86 @@ export default function StudentPage() {
     return processed.join('\n').replace(/==([^=]+)==/g, '<span style="color:#dc2626; background:#fee2e2; padding:0 4px; border-radius:4px; font-weight:bold;">$1</span>');
   };
 
+  const handlePrint = () => {
+    if (!data) return;
+    let contentHtml = '';
+
+    if (isFolder && data.children) {
+      contentHtml += `
+        <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 90vh; page-break-after: always; text-align: center;">
+          <div style="font-size: 24px; color: #666; margin-bottom: 20px; letter-spacing: 4px;">建筑材料内部讲义</div>
+          <h1 style="font-size: 50px; font-weight: 900; border-bottom: 4px solid #000; padding-bottom: 20px; margin-bottom: 40px;">${data.title}</h1>
+        </div>
+      `;
+      data.children.forEach((child: any, index: number) => {
+        contentHtml += `
+          <div style="${index > 0 ? 'page-break-before: always;' : ''}">
+            <h2 style="font-size: 28px; text-align: center; border-bottom: 2px solid #ccc; padding-bottom: 10px; margin-bottom: 30px;">${child.title}</h2>
+            ${renderHTML(child.content)}
+          </div>
+        `;
+      });
+    } else {
+      contentHtml += `
+        <div>
+          <h2 style="font-size: 28px; text-align: center; border-bottom: 2px solid #ccc; padding-bottom: 10px; margin-bottom: 30px;">${data.title}</h2>
+          ${renderHTML(data.content)}
+        </div>
+      `;
+    }
+
+    const fullHtml = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8">
+        <title>${data.title} - 打印资料</title>
+        <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+        <style>
+          body { padding: 40px; font-family: "PingFang SC", "Microsoft YaHei", sans-serif; max-width: 900px; margin: 0 auto; color: #000 !important; background: none !important; line-height: 1.8; }
+          * { color: #000 !important; box-shadow: none !important; text-shadow: none !important; background: transparent !important; }
+          .premium-highlight { border: 1.5px solid #000 !important; padding: 2px 6px !important; border-radius: 4px; font-weight: bold; background: #fff !important; }
+          table { width: 100%; border-collapse: collapse; margin: 20px 0; font-size: 14px; page-break-inside: avoid; }
+          th, td { border: 1px solid #000 !important; padding: 12px; text-align: left; }
+          th { font-weight: bold; }
+          blockquote { border-left: 4px solid #000 !important; padding: 12px 16px; margin: 20px 0; font-style: italic; }
+          img { max-width: 100%; border-radius: 4px; display: block; margin: 20px auto; }
+          ul, ol { padding-left: 28px; }
+          li { margin-bottom: 8px; }
+          .katex-display { margin: 20px 0; overflow-x: auto; overflow-y: hidden; text-align: center; page-break-inside: avoid; }
+          @media print {
+            body { padding: 0; max-width: 100%; margin: 0; }
+            @page { margin: 2cm; }
+          }
+        </style>
+      </head>
+      <body>
+        ${contentHtml}
+        <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+        <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"></script>
+        <script>
+          window.onload = function() {
+            renderMathInElement(document.body, {
+              delimiters: [ {left: '$$', right: '$$', display: true}, {left: '$', right: '$', display: false} ],
+              throwOnError: false
+            });
+            setTimeout(function(){ window.print(); }, 800);
+          };
+        </script>
+      </body>
+      </html>
+    `;
+
+    const w = window.open('', '_blank');
+    if (w) {
+      w.document.open();
+      w.document.write(fullHtml);
+      w.document.close();
+    } else {
+      alert("请允许浏览器弹出新窗口以进行打印！");
+    }
+  };
+
   useEffect(() => {
     if (tab === 'map' && contentToRender && svgRef.current) {
       const cleanContent = transformForMarkmap(contentToRender);
@@ -145,13 +241,20 @@ export default function StudentPage() {
     .glass-container { background: rgba(255, 255, 255, 0.85); backdrop-filter: blur(24px); -webkit-backdrop-filter: blur(24px); border: 1px solid rgba(255, 255, 255, 0.8); box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.1); border-radius: 24px; padding: 50px 60px; margin: 40px auto; width: 100%; max-width: 1000px; }
     
     .layout-container { display: flex; height: calc(100vh - 80px); overflow: hidden; }
-    .sidebar { width: 280px; flex-shrink: 0; background: rgba(255,255,255,0.6); backdrop-filter: blur(20px); border-right: 1px solid rgba(0,0,0,0.05); overflow-y: auto; padding: 24px 0; transition: transform 0.3s ease; }
-    .main-content { flex: 1; overflow-y: auto; position: relative; scroll-behavior: smooth; }
+    .sidebar { flex-shrink: 0; background: rgba(255,255,255,0.6); backdrop-filter: blur(20px); overflow-y: auto; transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); z-index: 40; }
+    
+    .sidebar.desktop-open { width: 280px; padding: 24px 0; border-right: 1px solid rgba(0,0,0,0.05); opacity: 1; }
+    .sidebar.desktop-closed { width: 0; padding: 0; border: none; opacity: 0; overflow: hidden; pointer-events: none; }
+    
+    .main-content { flex: 1; height: 100%; overflow-y: auto; position: relative; scroll-behavior: smooth; -webkit-overflow-scrolling: touch; }
+    
     .chapter-item { padding: 12px 30px; cursor: pointer; color: #475569; font-size: 15px; border-left: 4px solid transparent; transition: 0.2s; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .chapter-item:hover { color: #2563eb; background: rgba(37,99,235,0.05); }
     .chapter-item.active { color: #2563eb; background: rgba(37,99,235,0.1); border-left-color: #2563eb; font-weight: bold; }
+    
+    .menu-toggle { display: flex; align-items: center; justify-content: center; background: none; border: none; cursor: pointer; color: #0f172a; margin-right: 16px; padding: 6px; border-radius: 8px; transition: background 0.2s; }
+    .menu-toggle:hover { background: rgba(0,0,0,0.05); }
     .mobile-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.3); z-index: 39; backdrop-filter: blur(2px); }
-    .menu-toggle { display: none; background: none; border: none; font-size: 24px; cursor: pointer; color: #0f172a; margin-right: 16px; }
 
     @media (max-width: 768px) {
       .glass-container { padding: 30px 20px; width: 95%; margin: 20px auto; border-radius: 16px; }
@@ -159,11 +262,10 @@ export default function StudentPage() {
       .nav-btn { padding: 6px 10px; font-size: 13px; }
       .preview-content h1 { font-size: 28px; }
       
-      .layout-container { display: block; }
-      .sidebar { position: fixed; left: 0; top: 80px; bottom: 0; z-index: 40; background: #f8fafc; box-shadow: 4px 0 20px rgba(0,0,0,0.1); transform: translateX(-100%); }
-      .sidebar.open { transform: translateX(0); }
+      .sidebar { position: fixed; left: 0; top: 80px; bottom: 0; width: 280px; background: #f8fafc; box-shadow: 4px 0 20px rgba(0,0,0,0.1); padding: 24px 0; opacity: 1; }
+      .sidebar.mobile-open { transform: translateX(0); }
+      .sidebar.mobile-closed { transform: translateX(-100%); }
       .mobile-overlay.open { display: block; }
-      .menu-toggle { display: block; }
     }
 
     .preview-content img { max-width: 100%; border-radius: 12px; box-shadow: 0 10px 25px -5px rgba(0,0,0,0.1); margin: 32px auto; display: block; }
@@ -191,6 +293,10 @@ export default function StudentPage() {
     .katex-display { margin: 24px 0; overflow-x: auto; overflow-y: hidden; padding: 10px 0; text-align: center; }
   `;
 
+  const sidebarClass = isMobile 
+    ? (sidebarOpen ? 'mobile-open' : 'mobile-closed') 
+    : (sidebarOpen ? 'desktop-open' : 'desktop-closed');
+
   return (
     <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', fontFamily: 'system-ui, -apple-system, sans-serif' }}>
       <style>{premiumCSS}</style>
@@ -198,8 +304,8 @@ export default function StudentPage() {
       <header className="glass-nav" style={{ position: 'sticky', top: 0, zIndex: 50, padding: '0 40px', height: '80px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <div style={{ display: 'flex', alignItems: 'center' }}>
            {isFolder && (
-             <button className="menu-toggle" onClick={() => setMenuOpen(true)}>
-               <svg viewBox="0 0 24 24" width="24" height="24" stroke="currentColor" strokeWidth="2" fill="none"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
+             <button className="menu-toggle" onClick={() => setSidebarOpen(!sidebarOpen)} title="展开/收起目录">
+               <svg viewBox="0 0 24 24" width="24" height="24" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
              </button>
            )}
            <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
@@ -207,35 +313,38 @@ export default function StudentPage() {
              <span style={{ fontWeight: '800', fontSize: '20px', color: '#0f172a', letterSpacing: '1px' }}>{titleToRender || '建筑材料教案系统'}</span>
            </div>
         </div>
-        <div style={{ display: 'flex', background: 'rgba(226, 232, 240, 0.5)', padding: '6px', borderRadius: '16px', backdropFilter: 'blur(10px)' }}>
+        <div style={{ display: 'flex', background: 'rgba(226, 232, 240, 0.5)', padding: '6px', borderRadius: '16px', backdropFilter: 'blur(10px)', gap: '4px' }}>
           <button onClick={() => setTab('doc')} className={`nav-btn ${tab === 'doc' ? 'active' : 'inactive'}`}>📖 阅读</button>
           <button onClick={() => setTab('map')} className={`nav-btn ${tab === 'map' ? 'active' : 'inactive'}`}>🧠 导图</button>
+          <button onClick={handlePrint} className="nav-btn inactive" style={{ padding: '8px 16px', color: '#10b981' }} title="打印全册/单节资料">🖨️ 打印</button>
         </div>
       </header>
 
       <div className="layout-container">
-        {/* 左侧章节目录（仅分享文件夹时显示） */}
         {isFolder && (
           <>
-            <div className={`mobile-overlay ${menuOpen ? 'open' : ''}`} onClick={() => setMenuOpen(false)}></div>
-            <aside className={`sidebar ${menuOpen ? 'open' : ''}`}>
-              <div style={{ padding: '0 30px 16px', fontSize: '12px', fontWeight: 'bold', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '1px' }}>章节目录</div>
+            <div className={`mobile-overlay ${sidebarOpen ? 'open' : ''}`} onClick={() => setSidebarOpen(false)}></div>
+            <aside className={`sidebar ${sidebarClass}`}>
+              <div style={{ padding: '0 30px 16px', fontSize: '12px', fontWeight: 'bold', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '1px', whiteSpace: 'nowrap' }}>章节目录</div>
               {data.children?.map((child: any) => (
                 <div 
                   key={child.id} 
                   className={`chapter-item ${activeNoteId === child.id ? 'active' : ''}`}
-                  onClick={() => { setActiveNoteId(child.id); setMenuOpen(false); document.querySelector('.main-content')?.scrollTo(0,0); }}
+                  onClick={() => { 
+                    setActiveNoteId(child.id); 
+                    if (isMobile) setSidebarOpen(false); 
+                    document.querySelector('.main-content')?.scrollTo(0,0); 
+                  }}
                   title={child.title}
                 >
                   {child.title}
                 </div>
               ))}
-              {data.children?.length === 0 && <div style={{ padding: '0 30px', color: '#94a3b8', fontSize: '13px' }}>该目录下暂无内容</div>}
+              {data.children?.length === 0 && <div style={{ padding: '0 30px', color: '#94a3b8', fontSize: '13px', whiteSpace: 'nowrap' }}>该目录下暂无内容</div>}
             </aside>
           </>
         )}
 
-        {/* 右侧核心内容区 */}
         <main className="main-content">
           {tab === 'doc' ? (
             <div style={{ padding: '20px' }}>
