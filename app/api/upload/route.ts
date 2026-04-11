@@ -1,26 +1,48 @@
 import { NextResponse } from 'next/server';
-import { writeFile } from 'fs/promises';
-import path from 'path';
-import fs from 'fs';
+import { writeFile, mkdir } from 'fs/promises';
+import { join } from 'path';
+import { existsSync } from 'fs';
 
 export async function POST(request: Request) {
-  const data = await request.formData();
-  const files: File[] = data.getAll('file[]') as File[];
+  try {
+    const formData = await request.formData();
+    const files = formData.getAll('file[]'); 
 
-  if (!files || files.length === 0) return NextResponse.json({ msg: '无文件', code: 1 });
+    if (!files || files.length === 0) {
+      return NextResponse.json({ msg: '没有接收到文件', code: 1, data: {} });
+    }
 
-  const uploadDir = path.join(process.cwd(), 'public', 'uploads');
-  if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
+    const succMap: Record<string, string> = {};
+    // 【核心修改】：不放 public 了，直接存在项目根目录的私有 uploads 文件夹里
+    const uploadDir = join(process.cwd(), 'uploads');
 
-  const resData: any = { errFiles: [], succMap: {} };
+    if (!existsSync(uploadDir)) {
+      await mkdir(uploadDir, { recursive: true });
+    }
 
-  for (const file of files) {
-    const bytes = await file.arrayBuffer();
-    const buffer = Buffer.from(bytes);
-    const filename = Date.now() + '-' + file.name.replace(/[^a-zA-Z0-9.-]/g, '_');
-    await writeFile(path.join(uploadDir, filename), buffer);
-    resData.succMap[file.name] = `/uploads/${filename}`;
+    for (const file of files) {
+      if (file instanceof Blob) {
+        const buffer = Buffer.from(await file.arrayBuffer());
+        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+        const originalName = (file as any).name || 'image.png';
+        const safeName = originalName.replace(/[^a-zA-Z0-9.-]/g, '_');
+        const filename = `${uniqueSuffix}-${safeName}`;
+        const filepath = join(uploadDir, filename);
+
+        await writeFile(filepath, buffer);
+        
+        // 【核心修改】：返回全新的动态读取 API 路径
+        succMap[originalName] = `/api/uploads/${filename}`;
+      }
+    }
+
+    return NextResponse.json({
+      msg: '',
+      code: 0,
+      data: { errFiles: [], succMap: succMap }
+    });
+  } catch (e: any) {
+    console.error('上传图片失败:', e);
+    return NextResponse.json({ msg: '服务器错误: ' + e.message, code: 1, data: {} });
   }
-
-  return NextResponse.json({ msg: '上传成功', code: 0, data: resData });
 }

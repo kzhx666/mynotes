@@ -177,7 +177,7 @@ export default function EditorContainer() {
     .preview-content th, .preview-content td { border: 1px solid #cbd5e1; padding: 10px 14px; text-align: left; }
     .preview-content th { background-color: #f8fafc; font-weight: bold; color: #1e293b; }
     .preview-content blockquote { border-left: 4px solid #3b82f6; padding: 12px 16px; color: #475569; background: #eff6ff; margin: 16px 0; border-radius: 0 8px 8px 0; }
-    .preview-content img { max-width: 100%; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); margin: 16px 0; }
+    .preview-content img { max-width: 100%; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); margin: 16px auto; display: block; }
     .preview-content ul, .preview-content ol { padding-left: 24px; margin-bottom: 16px; }
     .preview-content li { margin-bottom: 8px; }
     .preview-content p { line-height: 1.7; margin-bottom: 16px; color: #334155; }
