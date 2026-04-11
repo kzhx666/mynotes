@@ -34,7 +34,6 @@ export default function EditorContainer() {
   const [searchTerm, setSearchTerm] = useState('');
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
   const [menuState, setMenuState] = useState<{ id: string, x: number, y: number, is_folder: boolean, note: any, mode: 'default' | 'move' } | null>(null);
-  const [saveStatus, setSaveStatus] = useState(''); 
   
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [isMobile, setIsMobile] = useState(false);
@@ -111,8 +110,6 @@ export default function EditorContainer() {
       let rawLine = line;
       let t = rawLine.trim();
       if (!t) continue;
-
-      // 保留原文缩进，维持父子节点层次
       const indentMatch = rawLine.match(/^(\s*)/);
       const indent = indentMatch ? indentMatch[1] : '';
 
@@ -130,36 +127,18 @@ export default function EditorContainer() {
       } else { if (t !== "") tableHeaders = []; }
 
       if (t.startsWith('>')) { processed.push(`${indent}- 💡 ${t.replace(/^>\s*/, '').replace(/\[!.*?\]/, '')}`); continue; }
-      if (t.startsWith('![')) continue; 
+      if (t.startsWith('![') || t.startsWith('<img') || t.startsWith('<div')) continue; 
 
       if (t.startsWith('#')) { processed.push(rawLine); continue; }
-
-      // 【核心升级】：识别纯加粗短文本（如：**3. 耐水性**），强制转为真正的标题节点
-      if (t.startsWith('**') && t.endsWith('**') && t.length < 80) {
-          processed.push(`${indent}##### ${t}`);
-          continue;
-      }
-      
-      // 【核心升级】：识别顶格的数字标号伪标题（如：6. 填充率与空隙率）
-      if (/^\d+\.\s/.test(t) && !rawLine.startsWith(' ') && !t.startsWith('**')) {
-          processed.push(`##### **${t}**`);
-          continue;
-      }
-
-      // 若已经是列表，则完美保留缩进
-      if (t.startsWith('- ') || t.startsWith('* ') || /^\d+\.\s/.test(t)) {
-          processed.push(rawLine);
-          continue;
-      }
-
-      // 长句拆分保留缩进
+      if (t.startsWith('**') && t.endsWith('**') && t.length < 80) { processed.push(`${indent}##### ${t}`); continue; }
+      if (/^\d+\.\s/.test(t) && !rawLine.startsWith(' ') && !t.startsWith('**')) { processed.push(`##### **${t}**`); continue; }
+      if (t.startsWith('- ') || t.startsWith('* ') || /^\d+\.\s/.test(t)) { processed.push(rawLine); continue; }
       if (t.length > 30 && t.includes('。')) {
         const parts = t.split('。').filter(p => p.trim());
         processed.push(`${indent}- ${parts[0]}。`); 
         parts.slice(1).forEach(p => processed.push(`${indent}  - ${p}。`));
         continue;
       }
-
       processed.push(`${indent}- ${t}`);
     }
     return processed.join('\n').replace(/==([^=]+)==/g, '<span style="color:#dc2626; background:#fee2e2; padding:0 4px; border-radius:4px; font-weight:bold;">$1</span>');
@@ -178,6 +157,9 @@ export default function EditorContainer() {
     .preview-content th { background-color: #f8fafc; font-weight: bold; color: #1e293b; }
     .preview-content blockquote { border-left: 4px solid #3b82f6; padding: 12px 16px; color: #475569; background: #eff6ff; margin: 16px 0; border-radius: 0 8px 8px 0; }
     .preview-content img { max-width: 100%; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); margin: 16px auto; display: block; }
+    div[align="center"] img { margin: 16px auto !important; display: block !important; }
+    div[align="left"] img { margin: 16px 16px 16px 0 !important; display: inline-block !important; }
+    div[align="right"] img { margin: 16px 0 16px 16px !important; display: inline-block !important; }
     .preview-content ul, .preview-content ol { padding-left: 24px; margin-bottom: 16px; }
     .preview-content li { margin-bottom: 8px; }
     .preview-content p { line-height: 1.7; margin-bottom: 16px; color: #334155; }
@@ -211,7 +193,10 @@ export default function EditorContainer() {
       
       const Vditor = VditorModule.default;
       vditorInstance = new Vditor(vditorId, {
-        height: '100%', mode: 'ir', lang: 'zh_CN', value: activeNote.content || '',
+        height: '100%', 
+        mode: 'ir', 
+        lang: 'zh_CN', 
+        value: activeNote.content || '',
         preview: { markdown: { mark: true } },
         upload: { 
           url: '/api/upload', fieldName: 'file[]', max: 10 * 1024 * 1024,
@@ -222,6 +207,79 @@ export default function EditorContainer() {
         },
         toolbar: [
           'emoji', 'headings', 'bold', 'italic', 'strike', 'link', '|', 'list', 'ordered-list', 'check', '|', 'quote', 'line', 'code', '|', 'upload',
+          {
+            name: 'convert_img', tip: '✨ 将图片转换为可调代码 (一键居中+50%缩放)',
+            icon: '<svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>',
+            click() { 
+              const text = vditorInstance.getSelection() || '';
+              let url = '';
+              
+              // 【终极容错正则】：无视换行符、括号，只要有路径，强行抓取！
+              const match = text.match(/(\/api\/uploads\/[^\s)"'>\]]+|\/uploads\/[^\s)"'>\]]+|https?:\/\/[^\s)"'>\]]+)/);
+              if (match) {
+                 url = match[1];
+              }
+
+              if (!url) {
+                 url = prompt('未能自动识别图片代码。\n请直接把图片链接（例如 /api/uploads/... ）粘贴到这里：');
+                 if (!url) return;
+              }
+
+              const html = `\n<div align="center"><img src="${url}" width="50%" /></div>\n`;
+              document.execCommand('insertText', false, html);
+            }
+          },
+          {
+            name: 'resize_img', tip: '📏 调整图片大小',
+            icon: '<svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg>',
+            click() { 
+              const text = vditorInstance.getSelection() || '';
+              let url = '';
+              const match = text.match(/(\/api\/uploads\/[^\s)"'>\]]+|\/uploads\/[^\s)"'>\]]+|https?:\/\/[^\s)"'>\]]+)/);
+              if (match) url = match[1];
+
+              if (!url) {
+                 url = prompt('【步骤 1/2】未能识别图片。\n请粘贴图片链接 (如 /api/uploads/...)：', '');
+                 if (!url) return;
+              }
+              let w = prompt('【步骤 2/2】请输入图片宽度\n(填 50% 代表一半宽，填 300px 代表固定宽)：', '50%');
+              if (w === null) return;
+              if (/^\d+$/.test(w.trim())) w = w.trim() + 'px';
+
+              let alignMatch = text.match(/align=["']?(left|center|right)["']/);
+              let align = alignMatch ? alignMatch[1] : 'center';
+
+              const html = `<div align="${align}"><img src="${url}" width="${w}" /></div>`;
+              document.execCommand('insertText', false, html);
+            }
+          },
+          {
+            name: 'align_img', tip: '↔️ 调整图片位置 (左对齐/居中/右对齐)',
+            icon: '<svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="6" x2="20" y2="6"></line><line x1="4" y1="12" x2="20" y2="12"></line><line x1="4" y1="18" x2="20" y2="18"></line></svg>',
+            click() { 
+              const text = vditorInstance.getSelection() || '';
+              let url = '';
+              const match = text.match(/(\/api\/uploads\/[^\s)"'>\]]+|\/uploads\/[^\s)"'>\]]+|https?:\/\/[^\s)"'>\]]+)/);
+              if (match) url = match[1];
+
+              if (!url) {
+                 url = prompt('【步骤 1/2】未能识别图片。\n请粘贴图片链接 (如 /api/uploads/...)：', '');
+                 if (!url) return;
+              }
+              let alignInput = prompt('【步骤 2/2】请选择对齐方式：\n1 = 居中\n2 = 靠左\n3 = 靠右', '1');
+              if (alignInput === null) return;
+
+              let align = 'center';
+              if (alignInput === '2') align = 'left';
+              if (alignInput === '3') align = 'right';
+
+              let wMatch = text.match(/width=["']?(.*?)["'\s>]/);
+              let w = wMatch ? wMatch[1] : '50%'; 
+
+              const html = `\n<div align="${align}"><img src="${url}" width="${w}" /></div>\n`;
+              document.execCommand('insertText', false, html);
+            }
+          },
           {
             name: 'add_mark', tip: '标注重点',
             icon: '<svg viewBox="0 0 1024 1024" width="16" height="16"><path d="M128 768h768v128H128zM318.4 640l-88-251.2 59.2-20.8 77.6 220.8L534.4 128l58.4 20.8L376 720z"/></svg>',
@@ -247,6 +305,15 @@ export default function EditorContainer() {
         after: () => { 
           if (isCanceled) { vditorInstance.destroy(); return; }
           vditorRef.current = vditorInstance; 
+          
+          let count = 0;
+          const timer = setInterval(() => {
+            document.querySelectorAll('.vditor-toolbar__item button').forEach(btn => {
+              const tip = btn.getAttribute('aria-label') || btn.getAttribute('data-type');
+              if (tip && !btn.getAttribute('title')) btn.setAttribute('title', tip); 
+            });
+            if(++count > 6) clearInterval(timer);
+          }, 500);
         }
       });
     };
@@ -299,7 +366,7 @@ export default function EditorContainer() {
 
   const handleExport = (note: any, format: 'html' | 'pdf') => {
     const htmlBody = renderHTML(note.content);
-    const full = `<html><head><meta charset="utf-8"><style>body{padding:40px;font-family:sans-serif;max-width:800px;margin:0 auto;}mark{background:#fee2e2;color:#dc2626;font-weight:bold;padding:0 4px;border-radius:4px}table{width:100%;border-collapse:collapse;margin:16px 0}th,td{border:1px solid #cbd5e1;padding:10px;text-align:left}th{background:#f8fafc}blockquote{border-left:4px solid #3b82f6;padding:12px 16px;background:#eff6ff;margin:16px 0}img{max-width:100%;border-radius:8px}</style></head><body>${htmlBody}</body></html>`;
+    const full = `<html><head><meta charset="utf-8"><style>body{padding:40px;font-family:sans-serif;max-width:800px;margin:0 auto;}mark{background:#fee2e2;color:#dc2626;font-weight:bold;padding:0 4px;border-radius:4px}table{width:100%;border-collapse:collapse;margin:16px 0}th,td{border:1px solid #cbd5e1;padding:10px;text-align:left}th{background:#f8fafc}blockquote{border-left:4px solid #3b82f6;padding:12px 16px;background:#eff6ff;margin:16px 0}img{max-width:100%;border-radius:8px;margin:16px auto;display:block;}div[align="left"] img{margin:16px 16px 16px 0 !important;display:inline-block !important;}div[align="right"] img{margin:16px 0 16px 16px !important;display:inline-block !important;}</style></head><body>${htmlBody}</body></html>`;
     if (format === 'html') {
       const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([full], {type:'text/html'})); a.download = `${note.title}.html`; a.click();
     } else {

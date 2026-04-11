@@ -105,7 +105,6 @@ export default function StudentPage() {
       let rawLine = line;
       let t = rawLine.trim();
       if (!t) continue;
-
       const indentMatch = rawLine.match(/^(\s*)/);
       const indent = indentMatch ? indentMatch[1] : '';
 
@@ -123,27 +122,12 @@ export default function StudentPage() {
       } else { if (t !== "") tableHeaders = []; }
 
       if (t.startsWith('>')) { processed.push(`${indent}- 💡 ${t.replace(/^>\s*/, '').replace(/\[!.*?\]/, '')}`); continue; }
-      if (t.startsWith('![')) continue; 
+      if (t.startsWith('![') || t.startsWith('<img') || t.startsWith('<div')) continue; 
 
       if (t.startsWith('#')) { processed.push(rawLine); continue; }
-
-      // 【核心升级】：识别纯加粗短文本（如：**3. 耐水性**），强制转为真正的标题节点
-      if (t.startsWith('**') && t.endsWith('**') && t.length < 80) {
-          processed.push(`${indent}##### ${t}`);
-          continue;
-      }
-      
-      // 【核心升级】：识别顶格的数字标号伪标题（如：6. 填充率与空隙率）
-      if (/^\d+\.\s/.test(t) && !rawLine.startsWith(' ') && !t.startsWith('**')) {
-          processed.push(`##### **${t}**`);
-          continue;
-      }
-
-      if (t.startsWith('- ') || t.startsWith('* ') || /^\d+\.\s/.test(t)) {
-          processed.push(rawLine);
-          continue;
-      }
-
+      if (t.startsWith('**') && t.endsWith('**') && t.length < 80) { processed.push(`${indent}##### ${t}`); continue; }
+      if (/^\d+\.\s/.test(t) && !rawLine.startsWith(' ') && !t.startsWith('**')) { processed.push(`##### **${t}**`); continue; }
+      if (t.startsWith('- ') || t.startsWith('* ') || /^\d+\.\s/.test(t)) { processed.push(rawLine); continue; }
       if (t.length > 30 && t.includes('。')) {
         const parts = t.split('。').filter(p => p.trim());
         processed.push(`${indent}- ${parts[0]}。`); 
@@ -198,7 +182,9 @@ export default function StudentPage() {
           th, td { border: 1px solid #000 !important; padding: 12px; text-align: left; }
           th { font-weight: bold; }
           blockquote { border-left: 4px solid #000 !important; padding: 12px 16px; margin: 20px 0; font-style: italic; }
-          img { max-width: 100%; border-radius: 4px; display: block; margin: 20px auto; }
+          img { max-width: 100%; border-radius: 4px; margin: 20px auto; display: block; }
+          div[align="left"] img { margin: 20px 20px 20px 0 !important; display: inline-block !important; }
+          div[align="right"] img { margin: 20px 0 20px 20px !important; display: inline-block !important; }
           ul, ol { padding-left: 28px; }
           li { margin-bottom: 8px; }
           .katex-display { margin: 20px 0; overflow-x: auto; overflow-y: hidden; text-align: center; page-break-inside: avoid; }
@@ -298,6 +284,8 @@ export default function StudentPage() {
     }
 
     .preview-content img { max-width: 100%; border-radius: 12px; box-shadow: 0 10px 25px -5px rgba(0,0,0,0.1); margin: 32px auto; display: block; }
+    div[align="left"] img { margin: 16px 16px 16px 0 !important; display: inline-block !important; }
+    div[align="right"] img { margin: 16px 0 16px 16px !important; display: inline-block !important; }
     .preview-content h1 { background: linear-gradient(135deg, #0f172a, #3b82f6); -webkit-background-clip: text; -webkit-text-fill-color: transparent; font-size: 40px; font-weight: 900; text-align: center; margin-bottom: 40px; padding-bottom: 24px; border-bottom: 1px solid rgba(0,0,0,0.05); letter-spacing: 2px; }
     .preview-content h2 { font-size: 24px; font-weight: 700; color: #0f172a; margin-top: 48px; margin-bottom: 24px; display: flex; alignItems: center; }
     .preview-content h2::before { content: ''; display: inline-block; width: 6px; height: 24px; background: linear-gradient(to bottom, #3b82f6, #60a5fa); margin-right: 14px; border-radius: 4px; }
