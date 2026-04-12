@@ -35,6 +35,9 @@ export default function StudentPage() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [isMobile, setIsMobile] = useState(false);
   
+  const [isAutoScrolling, setIsAutoScrolling] = useState(false);
+  const [scrollSpeed, setScrollSpeed] = useState(15); 
+  
   const svgRef = useRef<SVGSVGElement>(null);
   const mmRef = useRef<any>(null);
 
@@ -63,6 +66,32 @@ export default function StudentPage() {
       })
       .catch(err => setError(err.message));
   }, [params.id]);
+
+  useEffect(() => {
+    let scrollTimer: NodeJS.Timeout;
+    if (isAutoScrolling && tab === 'doc') {
+      const intervalMs = scrollSpeed * 1000; 
+      
+      scrollTimer = setInterval(() => {
+        const container = document.querySelector('.main-content');
+        if (container) {
+          const overlap = 80;
+          const jumpDistance = Math.max(100, container.clientHeight - overlap);
+          const newScrollTop = container.scrollTop + jumpDistance;
+
+          container.scrollTo({
+            top: newScrollTop,
+            behavior: 'smooth'
+          });
+          
+          if (newScrollTop + container.clientHeight >= container.scrollHeight) {
+            setIsAutoScrolling(false);
+          }
+        }
+      }, intervalMs); 
+    }
+    return () => clearInterval(scrollTimer); 
+  }, [isAutoScrolling, tab, scrollSpeed]);
 
   const isFolder = data?.type === 'folder';
   const currentNote = isFolder ? data.children?.find((c:any) => c.id === activeNoteId) : data;
@@ -242,7 +271,7 @@ export default function StudentPage() {
         }
       });
     }
-  }, [contentToRender, tab]);
+  }); 
 
   if (error) return <div style={{height:'100vh', display:'flex', alignItems:'center', justifyContent:'center', color:'#dc2626', background:'#f8fafc', fontSize:'18px', fontWeight:'bold'}}>❌ {error}</div>;
   if (!data) return <div style={{height:'100vh', display:'flex', alignItems:'center', justifyContent:'center', color:'#94a3b8', background:'#f8fafc', fontSize:'18px', fontWeight:'bold'}}>读取内容中...</div>;
@@ -330,7 +359,31 @@ export default function StudentPage() {
              <span style={{ fontWeight: '800', fontSize: '20px', color: '#0f172a', letterSpacing: '1px' }}>{titleToRender || '建筑材料教案系统'}</span>
            </div>
         </div>
-        <div style={{ display: 'flex', background: 'rgba(226, 232, 240, 0.5)', padding: '6px', borderRadius: '16px', backdropFilter: 'blur(10px)', gap: '4px' }}>
+        <div style={{ display: 'flex', background: 'rgba(226, 232, 240, 0.5)', padding: '6px', borderRadius: '16px', backdropFilter: 'blur(10px)', gap: '4px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+          
+          {tab === 'doc' && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginRight: '8px' }}>
+              <select
+                value={scrollSpeed}
+                onChange={(e) => setScrollSpeed(Number(e.target.value))}
+                style={{ padding: '6px 10px', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.6)', background: 'rgba(255,255,255,0.8)', color: '#475569', outline: 'none', cursor: 'pointer', fontSize: '13px', fontWeight: 'bold' }}
+                title="选择翻页间隔时间"
+              >
+                {[5,10,15,20,25,30,35,40,45,50,55,60].map(s => (
+                  <option key={s} value={s}>{s}秒 / 屏</option>
+                ))}
+              </select>
+              <button 
+                onClick={() => setIsAutoScrolling(!isAutoScrolling)} 
+                className={`nav-btn ${isAutoScrolling ? 'active' : 'inactive'}`} 
+                style={{ color: isAutoScrolling ? '#2563eb' : '#64748b', display: 'flex', alignItems: 'center', gap: '4px', padding: '6px 12px' }}
+                title="开启/关闭翻页阅读"
+              >
+                {isAutoScrolling ? '⏸️ 停止' : '⬇️ 自动阅读'}
+              </button>
+            </div>
+          )}
+
           <button onClick={() => setTab('doc')} className={`nav-btn ${tab === 'doc' ? 'active' : 'inactive'}`}>📖 阅读</button>
           <button onClick={() => setTab('map')} className={`nav-btn ${tab === 'map' ? 'active' : 'inactive'}`}>🧠 导图</button>
           <button onClick={handlePrint} className="nav-btn inactive" style={{ padding: '8px 16px', color: '#10b981' }} title="打印全册/单节资料">🖨️ 打印</button>
@@ -351,6 +404,7 @@ export default function StudentPage() {
                     setActiveNoteId(child.id); 
                     if (isMobile) setSidebarOpen(false); 
                     document.querySelector('.main-content')?.scrollTo(0,0); 
+                    setIsAutoScrolling(false); 
                   }}
                   title={child.title}
                 >
