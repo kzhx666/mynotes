@@ -152,8 +152,11 @@ export default function EditorContainer() {
     .no-scrollbar::-webkit-scrollbar { display: none; }
     .vditor { border: none !important; }
     .vditor-toolbar { border-bottom: 1px solid #e2e8f0 !important; background: #f8fafc !important; }
-    .preview-content table { width: 100%; border-collapse: collapse; margin: 16px 0; font-size: 14px; }
-    .preview-content th, .preview-content td { border: 1px solid #cbd5e1; padding: 10px 14px; text-align: left; }
+    
+    /* 修复后台表格换行 */
+    .preview-content table { width: 100%; border-collapse: collapse; margin: 16px 0; font-size: 14px; display: table !important; word-break: break-word; overflow-wrap: break-word; }
+    .preview-content th, .preview-content td { border: 1px solid #cbd5e1; padding: 10px 14px; text-align: left; white-space: normal !important; line-height: 1.6; }
+    
     .preview-content th { background-color: #f8fafc; font-weight: bold; color: #1e293b; }
     .preview-content blockquote { border-left: 4px solid #3b82f6; padding: 12px 16px; color: #475569; background: #eff6ff; margin: 16px 0; border-radius: 0 8px 8px 0; }
     .preview-content img { max-width: 100%; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); margin: 16px auto; display: block; }
@@ -203,43 +206,46 @@ export default function EditorContainer() {
           format(files, responseText) {
             const res = JSON.parse(responseText);
             return JSON.stringify({ msg: '', code: 0, data: res.data });
+          },
+          success(editor, msg) {
+            try {
+              const res = JSON.parse(msg);
+              if (res.code === 0 && res.data && res.data.succMap) {
+                const succMap = res.data.succMap;
+                let htmlToInsert = '';
+                for (const key in succMap) {
+                  htmlToInsert += `<div align="center"><img src="${succMap[key]}" width="50%" /></div>\n`;
+                }
+                vditorInstance.insertValue(htmlToInsert);
+              } else {
+                alert('上传失败: ' + (res.msg || '未知错误'));
+              }
+            } catch (e) {
+              console.error('解析上传返回失败', e);
+            }
+          },
+          error(msg) {
+            alert('上传出错: ' + msg);
           }
         },
         toolbar: [
           'emoji', 'headings', 'bold', 'italic', 'strike', 'link', '|', 'list', 'ordered-list', 'check', '|', 'quote', 'line', 'code', '|', 'upload',
           {
-            name: 'convert_img', tip: '✨ 将图片转换为可调代码 (一键居中+50%缩放)',
-            icon: '<svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>',
-            click() { 
-              const text = vditorInstance.getSelection() || '';
-              let url = '';
-              
-              // 【终极容错正则】：无视换行符、括号，只要有路径，强行抓取！
-              const match = text.match(/(\/api\/uploads\/[^\s)"'>\]]+|\/uploads\/[^\s)"'>\]]+|https?:\/\/[^\s)"'>\]]+)/);
-              if (match) {
-                 url = match[1];
-              }
-
-              if (!url) {
-                 url = prompt('未能自动识别图片代码。\n请直接把图片链接（例如 /api/uploads/... ）粘贴到这里：');
-                 if (!url) return;
-              }
-
-              const html = `\n<div align="center"><img src="${url}" width="50%" /></div>\n`;
-              document.execCommand('insertText', false, html);
-            }
-          },
-          {
             name: 'resize_img', tip: '📏 调整图片大小',
             icon: '<svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg>',
             click() { 
-              const text = vditorInstance.getSelection() || '';
+              const text = vditorInstance.getSelection();
               let url = '';
-              const match = text.match(/(\/api\/uploads\/[^\s)"'>\]]+|\/uploads\/[^\s)"'>\]]+|https?:\/\/[^\s)"'>\]]+)/);
-              if (match) url = match[1];
+              if (text) {
+                const match = text.match(/(https?:\/\/[^\s)"']+|\/api\/uploads\/[^\s)"']+|\/uploads\/[^\s)"']+)/);
+                if (match) url = match[1];
+              }
+              const sel = window.getSelection();
+              let range = null;
+              if (sel && sel.rangeCount > 0) range = sel.getRangeAt(0);
 
               if (!url) {
-                 url = prompt('【步骤 1/2】未能识别图片。\n请粘贴图片链接 (如 /api/uploads/...)：', '');
+                 url = prompt('【步骤 1/2】请粘贴图片链接 (如 /api/uploads/...)\n提示：若您不想出现多余代码，请先手动删掉原来的旧图片。', '');
                  if (!url) return;
               }
               let w = prompt('【步骤 2/2】请输入图片宽度\n(填 50% 代表一半宽，填 300px 代表固定宽)：', '50%');
@@ -250,6 +256,7 @@ export default function EditorContainer() {
               let align = alignMatch ? alignMatch[1] : 'center';
 
               const html = `<div align="${align}"><img src="${url}" width="${w}" /></div>`;
+              if (range && sel) { sel.removeAllRanges(); sel.addRange(range); }
               document.execCommand('insertText', false, html);
             }
           },
@@ -257,13 +264,18 @@ export default function EditorContainer() {
             name: 'align_img', tip: '↔️ 调整图片位置 (左对齐/居中/右对齐)',
             icon: '<svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="6" x2="20" y2="6"></line><line x1="4" y1="12" x2="20" y2="12"></line><line x1="4" y1="18" x2="20" y2="18"></line></svg>',
             click() { 
-              const text = vditorInstance.getSelection() || '';
+              const text = vditorInstance.getSelection();
               let url = '';
-              const match = text.match(/(\/api\/uploads\/[^\s)"'>\]]+|\/uploads\/[^\s)"'>\]]+|https?:\/\/[^\s)"'>\]]+)/);
-              if (match) url = match[1];
+              if (text) {
+                const match = text.match(/(https?:\/\/[^\s)"']+|\/api\/uploads\/[^\s)"']+|\/uploads\/[^\s)"']+)/);
+                if (match) url = match[1];
+              }
+              const sel = window.getSelection();
+              let range = null;
+              if (sel && sel.rangeCount > 0) range = sel.getRangeAt(0);
 
               if (!url) {
-                 url = prompt('【步骤 1/2】未能识别图片。\n请粘贴图片链接 (如 /api/uploads/...)：', '');
+                 url = prompt('【步骤 1/2】请粘贴图片链接 (如 /api/uploads/...)\n提示：若不想出现多余代码，请先手动删掉原来的旧图片代码。', '');
                  if (!url) return;
               }
               let alignInput = prompt('【步骤 2/2】请选择对齐方式：\n1 = 居中\n2 = 靠左\n3 = 靠右', '1');
@@ -276,7 +288,9 @@ export default function EditorContainer() {
               let wMatch = text.match(/width=["']?(.*?)["'\s>]/);
               let w = wMatch ? wMatch[1] : '50%'; 
 
-              const html = `\n<div align="${align}"><img src="${url}" width="${w}" /></div>\n`;
+              const html = `<div align="${align}"><img src="${url}" width="${w}" /></div>\n`;
+              
+              if (range && sel) { sel.removeAllRanges(); sel.addRange(range); }
               document.execCommand('insertText', false, html);
             }
           },
@@ -366,7 +380,8 @@ export default function EditorContainer() {
 
   const handleExport = (note: any, format: 'html' | 'pdf') => {
     const htmlBody = renderHTML(note.content);
-    const full = `<html><head><meta charset="utf-8"><style>body{padding:40px;font-family:sans-serif;max-width:800px;margin:0 auto;}mark{background:#fee2e2;color:#dc2626;font-weight:bold;padding:0 4px;border-radius:4px}table{width:100%;border-collapse:collapse;margin:16px 0}th,td{border:1px solid #cbd5e1;padding:10px;text-align:left}th{background:#f8fafc}blockquote{border-left:4px solid #3b82f6;padding:12px 16px;background:#eff6ff;margin:16px 0}img{max-width:100%;border-radius:8px;margin:16px auto;display:block;}div[align="left"] img{margin:16px 16px 16px 0 !important;display:inline-block !important;}div[align="right"] img{margin:16px 0 16px 16px !important;display:inline-block !important;}</style></head><body>${htmlBody}</body></html>`;
+    // 修复PDF导出的表格换行
+    const full = `<html><head><meta charset="utf-8"><style>body{padding:40px;font-family:sans-serif;max-width:800px;margin:0 auto;}mark{background:#fee2e2;color:#dc2626;font-weight:bold;padding:0 4px;border-radius:4px}table{width:100%;border-collapse:collapse;margin:16px 0;display:table !important;word-break:break-word;}th,td{border:1px solid #cbd5e1;padding:10px;text-align:left;white-space:normal !important;}th{background:#f8fafc}blockquote{border-left:4px solid #3b82f6;padding:12px 16px;background:#eff6ff;margin:16px 0}img{max-width:100%;border-radius:8px;margin:16px auto;display:block;}div[align="left"] img{margin:16px 16px 16px 0 !important;display:inline-block !important;}div[align="right"] img{margin:16px 0 16px 16px !important;display:inline-block !important;}</style></head><body>${htmlBody}</body></html>`;
     if (format === 'html') {
       const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([full], {type:'text/html'})); a.download = `${note.title}.html`; a.click();
     } else {

@@ -5,11 +5,11 @@ services:
     container_name: mynotes-prod
     restart: always
     ports:
-      - "3000:3000"
+      - "3002:3000"
     environment:
       - ADMIN_PASSWORD=123456
-      - DAV_USER=坚果云邮箱
-      - DAV_PASSWORD=坚果云密码
+      - DAV_USER=965680859@qq.com
+      - DAV_PASSWORD=atmpiabi3mus9yuf
     volumes:
       - ./data:/app/data
       - ./public/uploads:/app/public/uploads

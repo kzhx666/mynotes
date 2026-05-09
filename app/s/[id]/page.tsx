@@ -207,8 +207,10 @@ export default function StudentPage() {
           body { padding: 40px; font-family: "PingFang SC", "Microsoft YaHei", sans-serif; max-width: 900px; margin: 0 auto; color: #000 !important; background: none !important; line-height: 1.8; }
           * { color: #000 !important; box-shadow: none !important; text-shadow: none !important; background: transparent !important; }
           .premium-highlight { border: 1.5px solid #000 !important; padding: 2px 6px !important; border-radius: 4px; font-weight: bold; background: #fff !important; }
-          table { width: 100%; border-collapse: collapse; margin: 20px 0; font-size: 14px; page-break-inside: avoid; }
-          th, td { border: 1px solid #000 !important; padding: 12px; text-align: left; }
+          
+          table { width: 100%; border-collapse: collapse; margin: 20px 0; font-size: 14px; page-break-inside: avoid; display: table !important; word-break: break-word; overflow-wrap: break-word; }
+          th, td { border: 1px solid #000 !important; padding: 12px; text-align: left; white-space: normal !important; line-height: 1.6; }
+          
           th { font-weight: bold; }
           blockquote { border-left: 4px solid #000 !important; padding: 12px 16px; margin: 20px 0; font-style: italic; }
           img { max-width: 100%; border-radius: 4px; margin: 20px auto; display: block; }
@@ -320,8 +322,11 @@ export default function StudentPage() {
     .preview-content h2::before { content: ''; display: inline-block; width: 6px; height: 24px; background: linear-gradient(to bottom, #3b82f6, #60a5fa); margin-right: 14px; border-radius: 4px; }
     .preview-content p { font-size: 17px; line-height: 1.9; color: #334155; margin-bottom: 24px; }
     .preview-content blockquote { background: linear-gradient(to right, rgba(59,130,246,0.1), rgba(59,130,246,0.02)); border-left: 4px solid #3b82f6; padding: 20px 24px; border-radius: 0 16px 16px 0; margin: 32px 0; font-size: 16px; color: #1e293b; box-shadow: 0 4px 6px rgba(0,0,0,0.02); }
-    .preview-content table { width: 100%; border-collapse: separate; border-spacing: 0; margin: 32px 0; border-radius: 16px; overflow: hidden; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.05), 0 4px 6px -2px rgba(0,0,0,0.02); border: 1px solid rgba(0,0,0,0.05); display: block; overflow-x: auto; white-space: nowrap; }
-    .preview-content th, .preview-content td { padding: 16px 24px; text-align: left; }
+    
+    /* 修复分享页的表格换行问题，去除所有可能导致横向滚动的限制 */
+    .preview-content table { width: 100%; border-collapse: separate; border-spacing: 0; margin: 32px 0; border-radius: 16px; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.05), 0 4px 6px -2px rgba(0,0,0,0.02); border: 1px solid rgba(0,0,0,0.05); display: table !important; word-break: break-word; overflow-wrap: break-word; table-layout: auto; }
+    .preview-content th, .preview-content td { padding: 16px 24px; text-align: left; white-space: normal !important; line-height: 1.6; word-wrap: break-word; }
+    
     .preview-content th { background: #f8fafc; font-weight: 700; color: #0f172a; border-bottom: 2px solid #e2e8f0; text-transform: uppercase; font-size: 14px; letter-spacing: 1px;}
     .preview-content td { background: #ffffff; border-bottom: 1px solid #f1f5f9; color: #475569; }
     .preview-content tr:hover td { background: #f8fafc; transition: 0.2s; }
